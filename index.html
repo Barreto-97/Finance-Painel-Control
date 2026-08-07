@@ -206,11 +206,11 @@
     <h1 class="home-title">O que você quer analisar hoje?</h1>
     <p class="home-sub">Selecione a base para carregar os arquivos semanais e gerar o painel dinâmico correspondente.</p>
     <div class="home-grid">
-      <div class="home-card disabled" onclick="alert('Em desenvolvimento — aguardando definição da dinâmica.')">
+      <div class="home-card" onclick="openScreen('forcedclose')">
         <div class="idx">01 — BASE</div>
         <h2>Forced Close</h2>
-        <p>Em desenvolvimento. A dinâmica será integrada ao mesmo painel após definição.</p>
-        <div class="cta" style="color:var(--text-dim);">Em breve</div>
+        <p>Consolida os processos por Gerente Regional, Supervisor/Gerente e Ref Client, com comparativo semanal de volume.</p>
+        <div class="cta">Abrir painel →</div>
       </div>
       <div class="home-card" onclick="openScreen('debitos')">
         <div class="idx">02 — BASE</div>
@@ -221,8 +221,27 @@
     </div>
   </div>
 
+  <!-- FORCED CLOSE SCREEN -->
+  <div id="forcedclose-screen" class="hidden screen-panel">
+    <div class="section-head">
+      <h1>Forced Close</h1>
+      <p>Anexe a base mais recente e as bases comparativas de semanas anteriores para gerar o painel.</p>
+    </div>
+
+    <div class="upload-zone" id="fc-upload-zone">
+      <div class="u-icon">⬆</div>
+      <h3>Arraste os arquivos .xlsx aqui ou clique para selecionar</h3>
+      <p>Nome esperado: "Forced Close - DD-MM-AA.xlsx" — a data no nome define a semana.</p>
+      <input type="file" id="fc-file-input" multiple accept=".xlsx,.xls">
+    </div>
+
+    <div class="weeks-row" id="fc-weeks-row"></div>
+
+    <div id="fc-content"></div>
+  </div>
+
   <!-- PENDÊNCIA DE DÉBITOS IMPOSTOS SCREEN -->
-  <div id="debitos-screen" class="hidden">
+  <div id="debitos-screen" class="hidden screen-panel">
     <div class="section-head">
       <h1>Pendência de Débitos Impostos</h1>
       <p>Anexe a base mais recente e as bases comparativas de semanas anteriores para gerar o painel.</p>
@@ -249,12 +268,11 @@
 function openScreen(id){
   document.getElementById('home-screen').classList.add('hidden');
   document.getElementById('btn-back').classList.remove('hidden');
-  if(id==='debitos'){
-    document.getElementById('debitos-screen').classList.remove('hidden');
-  }
+  const target = document.getElementById(id+'-screen');
+  if(target) target.classList.remove('hidden');
 }
 function goHome(){
-  document.getElementById('debitos-screen').classList.add('hidden');
+  document.querySelectorAll('.screen-panel').forEach(el=>el.classList.add('hidden'));
   document.getElementById('home-screen').classList.remove('hidden');
   document.getElementById('btn-back').classList.add('hidden');
 }
@@ -677,6 +695,314 @@ function renderTrendChart(){
         x:{ ticks:{color:'#8b96ad'}, grid:{color:'rgba(255,255,255,0.05)'} },
         y:{ position:'left', ticks:{color:'#8b96ad', callback:v=>fmtBRL(v)}, grid:{color:'rgba(255,255,255,0.05)'} },
         y1:{ position:'right', ticks:{color:'#8b96ad'}, grid:{display:false} }
+      }
+    }
+  });
+}
+
+/* ============================================================
+   FORCED CLOSE MODULE (isolado — não compartilha estado com Débitos)
+   ============================================================ */
+let fcWeekDatasets = [];
+let fcFilterPath = { gerenteRegional:null, supervisor:null };
+let fcTrendChart = null;
+const FC_COLORS = {};
+function fcColorFor(name){
+  if(!FC_COLORS[name]){
+    const used = Object.keys(FC_COLORS).length;
+    FC_COLORS[name] = PALETTE[used % PALETTE.length];
+  }
+  return FC_COLORS[name];
+}
+
+const fcUploadZone = document.getElementById('fc-upload-zone');
+const fcFileInput = document.getElementById('fc-file-input');
+fcUploadZone.addEventListener('click', ()=>fcFileInput.click());
+fcUploadZone.addEventListener('dragover', e=>{e.preventDefault(); fcUploadZone.classList.add('drag');});
+fcUploadZone.addEventListener('dragleave', ()=>fcUploadZone.classList.remove('drag'));
+fcUploadZone.addEventListener('drop', e=>{
+  e.preventDefault(); fcUploadZone.classList.remove('drag');
+  fcHandleFiles(e.dataTransfer.files);
+});
+fcFileInput.addEventListener('change', e=>fcHandleFiles(e.target.files));
+
+/* Locate the "Details" tab specifically; fallback to first sheet if not found */
+function fcPickSheet(wb, fileName){
+  const norm = s => (s||'').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+  const target = wb.SheetNames.find(n => norm(n) === 'details' || norm(n).includes('details'));
+  if(target) return wb.Sheets[target];
+  console.warn('Aba "Details" não encontrada em '+fileName+' — usando a primeira aba.');
+  return wb.Sheets[wb.SheetNames[0]];
+}
+
+function fcHandleFiles(fileList){
+  const files = Array.from(fileList).filter(f=>/\.xlsx?$/i.test(f.name));
+  if(!files.length) return;
+  let pending = files.length;
+  files.forEach(file=>{
+    const reader = new FileReader();
+    reader.onload = evt=>{
+      try{
+        const data = new Uint8Array(evt.target.result);
+        const wb = XLSX.read(data, {type:'array'});
+        const sheet = fcPickSheet(wb, file.name); // Forced Close: aba "Details"
+        const rows2d = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+        const parsed = fcParseSheet(rows2d, file.name);
+        if(parsed) fcAddOrReplaceDataset(parsed);
+      }catch(err){
+        console.error('Erro ao ler '+file.name, err);
+        alert('Não foi possível ler o arquivo: '+file.name);
+      }finally{
+        pending--;
+        if(pending===0){ fcSortDatasets(); fcRenderAll(); }
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function fcParseSheet(rows2d, fileName){
+  const week = extractWeek(fileName); // reaproveita o mesmo parser de data usado em Débitos
+  if(!week){
+    alert('Não foi possível identificar a semana pelo nome do arquivo: '+fileName+'\nUse o padrão "Forced Close - DD-MM-AA.xlsx".');
+    return null;
+  }
+  let headerRowIdx = 0;
+  for(let i=0;i<Math.min(5,rows2d.length);i++){
+    const row = rows2d[i].map(c=>(c||'').toString().toLowerCase());
+    if(row.some(c=>c.includes('gerente regional')) || row.some(c=>c.includes('supervisor')) || row.some(c=>c.includes('ref client'))){
+      headerRowIdx = i; break;
+    }
+  }
+  const header = rows2d[headerRowIdx];
+  // Fallbacks: Coluna AE (30) = Gerente Regional, Coluna AD (29) = Supervisor/Gerente, Coluna L (11) = Ref Client
+  const colGerenteRegional = findCol(header, ['gerente regional'], 30, ['supervisor']);
+  const colSupervisor      = findCol(header, ['supervisor / gerente','supervisor/gerente','supervisor'], 29, ['regional']);
+  const colRefClient       = findCol(header, ['ref client','ref. client','refclient','cliente ref'], 11, ['cnpj','codigo']);
+
+  const rows = [];
+  for(let i=headerRowIdx+1;i<rows2d.length;i++){
+    const r = rows2d[i];
+    if(!r || r.length===0) continue;
+    const hasData = r.some(c=>c!==undefined && c!=='');
+    if(!hasData) continue;
+    rows.push({
+      gerenteRegional: (r[colGerenteRegional]||'(Não identificado)').toString().trim(),
+      supervisor: (r[colSupervisor]||'(Não identificado)').toString().trim(),
+      refClient: (r[colRefClient]||'(Não identificado)').toString().trim(),
+    });
+  }
+  return { label: week.label, date: week.date, fileName, rows };
+}
+
+function fcAddOrReplaceDataset(ds){
+  const idx = fcWeekDatasets.findIndex(d=>d.label===ds.label);
+  if(idx>=0) fcWeekDatasets[idx] = ds; else fcWeekDatasets.push(ds);
+}
+function fcSortDatasets(){
+  fcWeekDatasets.sort((a,b)=>b.date - a.date);
+}
+
+function fcFilterRows(rows, fp){
+  return rows.filter(r=>{
+    if(fp.gerenteRegional && r.gerenteRegional !== fp.gerenteRegional) return false;
+    if(fp.supervisor && r.supervisor !== fp.supervisor) return false;
+    return true;
+  });
+}
+function fcAggregateBy(rows, keyFn){
+  const map = new Map();
+  rows.forEach(r=>{
+    const key = keyFn(r);
+    if(!map.has(key)) map.set(key, {count:0});
+    map.get(key).count += 1;
+  });
+  return [...map.entries()].sort((a,b)=>b[1].count - a[1].count);
+}
+
+function fcRenderAll(){
+  const wrap = document.getElementById('fc-content');
+  if(fcWeekDatasets.length===0){ wrap.innerHTML=''; document.getElementById('fc-weeks-row').innerHTML=''; return; }
+
+  fcRenderWeekChips();
+
+  if(!wrap.querySelector('#fc-status-cards')){
+    wrap.innerHTML = `
+      <div class="filter-bar">
+        <div class="crumb" id="fc-crumb"></div>
+        <button class="clear-filter hidden" id="fc-clear-filter" onclick="fcClearFilter()">Limpar filtro</button>
+      </div>
+      <div class="card-grid" id="fc-status-cards"></div>
+      <div id="fc-drill-container"></div>
+      <div class="panel">
+        <h3>Evolução semanal</h3>
+        <p class="panel-sub">Comparativo da quantidade de processos por semana.</p>
+        <div style="overflow-x:auto;"><table id="fc-compare-table"></table></div>
+      </div>
+      <div class="panel">
+        <h3>Tendência</h3>
+        <p class="panel-sub">Linha de evolução da quantidade de processos, respeitando o filtro selecionado.</p>
+        <div class="chart-wrap"><canvas id="fc-trend-chart"></canvas></div>
+      </div>
+    `;
+  }
+  fcRenderCards();
+  fcRenderDrillDown();
+  fcRenderCrumb();
+  fcRenderCompareTable();
+  fcRenderTrendChart();
+}
+
+function fcRenderWeekChips(){
+  const el = document.getElementById('fc-weeks-row');
+  el.innerHTML = fcWeekDatasets.map((d,i)=>`
+    <div class="week-chip ${i===0?'current':''}">
+      <span class="dot"></span> ${d.label} ${i===0?'· base atual':''} <span style="color:var(--text-dim);">(${d.rows.length} linhas)</span>
+    </div>
+  `).join('');
+}
+
+function fcRenderCards(){
+  const base = fcWeekDatasets[0].rows;
+  const agg = fcAggregateBy(base, r=>r.gerenteRegional);
+  const el = document.getElementById('fc-status-cards');
+  el.innerHTML = agg.map(([name, v])=>{
+    const selected = fcFilterPath.gerenteRegional===name;
+    return `
+      <div class="stat-card ${selected?'selected':''}" onclick="fcToggleGerenteRegional('${escapeStr(name)}')">
+        <div class="s-label"><span style="display:flex;align-items:center;gap:6px;"><span class="status-dot" style="background:${fcColorFor(name)}"></span>${escapeHtml(name)}</span></div>
+        <div class="s-value">${fmtNum(v.count)}</div>
+        <div class="s-count">processos</div>
+      </div>`;
+  }).join('');
+}
+
+function fcToggleGerenteRegional(name){
+  if(fcFilterPath.gerenteRegional===name){
+    fcFilterPath = {gerenteRegional:null, supervisor:null};
+  }else{
+    fcFilterPath = {gerenteRegional:name, supervisor:null};
+  }
+  fcRenderAll();
+}
+function fcToggleSupervisor(name){
+  fcFilterPath.supervisor = (fcFilterPath.supervisor===name) ? null : name;
+  fcRenderAll();
+}
+function fcClearFilter(){
+  fcFilterPath = {gerenteRegional:null, supervisor:null};
+  fcRenderAll();
+}
+
+function fcRenderDrillDown(){
+  const el = document.getElementById('fc-drill-container');
+  el.innerHTML = '';
+  if(!fcFilterPath.gerenteRegional) return;
+
+  const base = fcWeekDatasets[0].rows;
+  const rowsByGR = base.filter(r=>r.gerenteRegional===fcFilterPath.gerenteRegional);
+  const supAgg = fcAggregateBy(rowsByGR, r=>r.supervisor);
+
+  let html = `<div class="drill-level">
+    <div class="level-tag">Por Supervisor / Gerente — ${escapeHtml(fcFilterPath.gerenteRegional)}</div>`;
+  html += supAgg.map(([sup, v])=>{
+    const rowsBySup = rowsByGR.filter(r=>r.supervisor===sup);
+    const refAgg = fcAggregateBy(rowsBySup, r=>r.refClient);
+    const selected = fcFilterPath.supervisor===sup;
+    return `<div class="gestor-block ${selected?'selected':''}" onclick="fcToggleSupervisor('${escapeStr(sup)}')">
+      <div class="g-head"><span class="g-name">${escapeHtml(sup)}</span><span class="g-value">${fmtNum(v.count)}</span></div>
+      <div class="g-count">${fmtNum(v.count)} processos</div>
+      ${refAgg.map(([ref,rv])=>`
+        <div class="cliente-row"><span>${escapeHtml(ref)}</span><span>${fmtNum(rv.count)}</span></div>
+      `).join('')}
+    </div>`;
+  }).join('');
+  html += `</div>`;
+
+  el.innerHTML = html;
+}
+
+function fcRenderCrumb(){
+  const el = document.getElementById('fc-crumb');
+  const clearBtn = document.getElementById('fc-clear-filter');
+  if(!fcFilterPath.gerenteRegional){
+    el.innerHTML = '<span>Todos os Gerentes Regionais — clique em um card para detalhar</span>';
+    clearBtn.classList.add('hidden');
+    return;
+  }
+  let parts = [`<b>${escapeHtml(fcFilterPath.gerenteRegional)}</b>`];
+  if(fcFilterPath.supervisor) parts.push(`<span class="sep">›</span><b>${escapeHtml(fcFilterPath.supervisor)}</b>`);
+  el.innerHTML = parts.join(' ');
+  clearBtn.classList.remove('hidden');
+}
+
+function fcRenderCompareTable(){
+  const table = document.getElementById('fc-compare-table');
+  const ordered = [...fcWeekDatasets]; // DESC (mais recente primeiro)
+  const results = ordered.map(ds=>{
+    const filtered = fcFilterRows(ds.rows, fcFilterPath);
+    return {label: ds.label, count: filtered.length};
+  });
+
+  let rowsHtml = '';
+  for(let i=0;i<results.length;i++){
+    const cur = results[i];
+    const prev = results[i+1];
+    let deltaCount = '';
+    if(prev){
+      const dC = prev.count===0 ? (cur.count===0?0:100) : ((cur.count-prev.count)/prev.count*100);
+      deltaCount = deltaBadge(dC);
+    }
+    rowsHtml += `<tr>
+      <td>${cur.label}</td>
+      <td>${fmtNum(cur.count)}</td>
+      <td>${deltaCount}</td>
+    </tr>`;
+  }
+
+  table.innerHTML = `
+    <thead><tr>
+      <th>Semana</th><th>Qtd. processos</th><th>Δ Qtd.</th>
+    </tr></thead>
+    <tbody>${rowsHtml || `<tr><td colspan="3" style="text-align:center;color:var(--text-dim);">Sem dados</td></tr>`}</tbody>
+  `;
+}
+
+function fcRenderTrendChart(){
+  const ordered = [...fcWeekDatasets].sort((a,b)=>a.date-b.date); // ASC para o gráfico
+  const labels = ordered.map(d=>d.label);
+  const counts = ordered.map(d=>fcFilterRows(d.rows, fcFilterPath).length);
+
+  const ctx = document.getElementById('fc-trend-chart').getContext('2d');
+  if(fcTrendChart) fcTrendChart.destroy();
+  fcTrendChart = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels,
+      datasets:[
+        {
+          label:'Qtd. processos',
+          data: counts,
+          borderColor:'#d4af6a',
+          backgroundColor:'rgba(212,175,106,0.12)',
+          tension:0.35,
+          fill:true,
+          pointRadius:4,
+          pointBackgroundColor:'#d4af6a',
+        }
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      interaction:{mode:'index', intersect:false},
+      plugins:{
+        legend:{labels:{color:'#8b96ad', font:{family:'DM Sans'}}},
+        tooltip:{ callbacks:{ label:(ctx)=>` Qtd. processos: ${fmtNum(ctx.parsed.y)}` } }
+      },
+      scales:{
+        x:{ ticks:{color:'#8b96ad'}, grid:{color:'rgba(255,255,255,0.05)'} },
+        y:{ position:'left', ticks:{color:'#8b96ad'}, grid:{color:'rgba(255,255,255,0.05)'} }
       }
     }
   });
