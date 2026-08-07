@@ -1,1 +1,0 @@
-# Finance-Painel-Control
