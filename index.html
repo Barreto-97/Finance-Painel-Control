@@ -4,6 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FINANCE - PAINEL CONTROL</title>
+<script>
+  (function(){
+    try{
+      var saved = localStorage.getItem('dsv-panel-theme');
+      document.documentElement.setAttribute('data-theme', saved || 'dark');
+    }catch(e){
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=DM+Mono:wght@400;500&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -27,6 +37,26 @@
     --blue:#6fa8dc;
     --radius:16px;
   }
+  html[data-theme="light"]{
+    /* Tema claro — puxado do branco DSV, com o azul DSV (Pantone 281 / #002664) como cor de destaque */
+    --navy-900:#ffffff;
+    --navy-800:#f6f8fb;
+    --navy-700:#eef1f7;
+    --navy-600:#e2e7f0;
+    --line:rgba(0,38,100,0.12);
+    --glass:rgba(0,38,100,0.035);
+    --glass-hover:rgba(0,38,100,0.07);
+    --gold:#002664;
+    --gold-soft:rgba(0,38,100,0.10);
+    --text:#0a1628;
+    --text-dim:#5b6b85;
+    --green:#1f8a5c;
+    --red:#c23b2e;
+    --amber:#a9760a;
+    --blue:#0a34a1;
+  }
+  html, body{ transition: background-color .25s ease, color .25s ease; }
+  *{ transition: background-color .2s ease, border-color .2s ease, color .2s ease; }
   *{box-sizing:border-box;}
   body{
     margin:0;
@@ -62,6 +92,14 @@
     display:flex; align-items:center; gap:6px; transition:.15s;
   }
   .back-btn:hover{background:var(--glass-hover); border-color:rgba(212,175,106,0.35);}
+  .topbar-actions{display:flex; align-items:center; gap:10px;}
+  .theme-toggle{
+    width:38px; height:38px; border-radius:10px;
+    background:var(--glass); border:1px solid var(--line); color:var(--text);
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    font-size:16px; line-height:1; transition:.15s;
+  }
+  .theme-toggle:hover{background:var(--glass-hover); border-color:rgba(212,175,106,0.35);}
   .hidden{display:none !important;}
 
   /* ---------- HOME ---------- */
@@ -198,7 +236,10 @@
       <div class="mark">F</div>
       <div class="name">FINANCE - PAINEL CONTROL</div>
     </div>
-    <button class="back-btn hidden" id="btn-back" onclick="goHome()">&larr; Voltar ao início</button>
+    <div class="topbar-actions">
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" aria-label="Alternar tema claro/escuro" title="Alternar tema claro/escuro"></button>
+      <button class="back-btn hidden" id="btn-back" onclick="goHome()">&larr; Voltar ao início</button>
+    </div>
   </div>
 
   <!-- HOME -->
@@ -265,6 +306,27 @@
 /* ============================================================
    NAVIGATION
    ============================================================ */
+/* ============================================================
+   TEMA CLARO / ESCURO
+   ============================================================ */
+function applyThemeIcon(theme){
+  const btn = document.getElementById('theme-toggle');
+  if(!btn) return;
+  btn.textContent = theme === 'light' ? '🌙' : '☀️';
+}
+function toggleTheme(){
+  const html = document.documentElement;
+  const current = html.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  try{ localStorage.setItem('dsv-panel-theme', next); }catch(e){}
+  applyThemeIcon(next);
+  // Recria os gráficos para que as cores dos eixos/legendas se ajustem ao novo tema
+  if(typeof fcRenderTrendChart === 'function' && fcWeekDatasets.length) fcRenderTrendChart();
+  if(typeof renderTrendChart === 'function' && weekDatasets.length) renderTrendChart();
+}
+applyThemeIcon(document.documentElement.getAttribute('data-theme') || 'dark');
+
 function openScreen(id){
   document.getElementById('home-screen').classList.add('hidden');
   document.getElementById('btn-back').classList.remove('hidden');
@@ -646,6 +708,12 @@ function renderTrendChart(){
   const sums = ordered.map(d=>filterRows(d.rows, filterPath).reduce((s,r)=>s+r.amount,0));
   const counts = ordered.map(d=>filterRows(d.rows, filterPath).length);
 
+  const cs = getComputedStyle(document.documentElement);
+  const cGold = cs.getPropertyValue('--gold').trim() || '#d4af6a';
+  const cBlue = cs.getPropertyValue('--blue').trim() || '#6fa8dc';
+  const cTextDim = cs.getPropertyValue('--text-dim').trim() || '#8b96ad';
+  const cLine = cs.getPropertyValue('--line').trim() || 'rgba(255,255,255,0.05)';
+
   const ctx = document.getElementById('trend-chart').getContext('2d');
   if(trendChart) trendChart.destroy();
   trendChart = new Chart(ctx, {
@@ -656,24 +724,24 @@ function renderTrendChart(){
         {
           label:'Valor total (R$)',
           data: sums,
-          borderColor:'#d4af6a',
-          backgroundColor:'rgba(212,175,106,0.12)',
+          borderColor:cGold,
+          backgroundColor:cGold+'20',
           yAxisID:'y',
           tension:0.35,
           fill:true,
           pointRadius:4,
-          pointBackgroundColor:'#d4af6a',
+          pointBackgroundColor:cGold,
         },
         {
           label:'Qtd. processos',
           data: counts,
-          borderColor:'#6fa8dc',
-          backgroundColor:'rgba(111,168,220,0.08)',
+          borderColor:cBlue,
+          backgroundColor:cBlue+'15',
           yAxisID:'y1',
           tension:0.35,
           fill:false,
           pointRadius:4,
-          pointBackgroundColor:'#6fa8dc',
+          pointBackgroundColor:cBlue,
         }
       ]
     },
@@ -682,7 +750,7 @@ function renderTrendChart(){
       maintainAspectRatio:false,
       interaction:{mode:'index', intersect:false},
       plugins:{
-        legend:{labels:{color:'#8b96ad', font:{family:'DM Sans'}}},
+        legend:{labels:{color:cTextDim, font:{family:'DM Sans'}}},
         tooltip:{
           callbacks:{
             label: (ctx)=> ctx.dataset.yAxisID==='y'
@@ -692,9 +760,9 @@ function renderTrendChart(){
         }
       },
       scales:{
-        x:{ ticks:{color:'#8b96ad'}, grid:{color:'rgba(255,255,255,0.05)'} },
-        y:{ position:'left', ticks:{color:'#8b96ad', callback:v=>fmtBRL(v)}, grid:{color:'rgba(255,255,255,0.05)'} },
-        y1:{ position:'right', ticks:{color:'#8b96ad'}, grid:{display:false} }
+        x:{ ticks:{color:cTextDim}, grid:{color:cLine} },
+        y:{ position:'left', ticks:{color:cTextDim, callback:v=>fmtBRL(v)}, grid:{color:cLine} },
+        y1:{ position:'right', ticks:{color:cTextDim}, grid:{display:false} }
       }
     }
   });
@@ -973,6 +1041,11 @@ function fcRenderTrendChart(){
   const labels = ordered.map(d=>d.label);
   const counts = ordered.map(d=>fcFilterRows(d.rows, fcFilterPath).length);
 
+  const cs = getComputedStyle(document.documentElement);
+  const cGold = cs.getPropertyValue('--gold').trim() || '#d4af6a';
+  const cTextDim = cs.getPropertyValue('--text-dim').trim() || '#8b96ad';
+  const cLine = cs.getPropertyValue('--line').trim() || 'rgba(255,255,255,0.05)';
+
   const ctx = document.getElementById('fc-trend-chart').getContext('2d');
   if(fcTrendChart) fcTrendChart.destroy();
   fcTrendChart = new Chart(ctx, {
@@ -983,12 +1056,12 @@ function fcRenderTrendChart(){
         {
           label:'Qtd. processos',
           data: counts,
-          borderColor:'#d4af6a',
-          backgroundColor:'rgba(212,175,106,0.12)',
+          borderColor:cGold,
+          backgroundColor:cGold+'20',
           tension:0.35,
           fill:true,
           pointRadius:4,
-          pointBackgroundColor:'#d4af6a',
+          pointBackgroundColor:cGold,
         }
       ]
     },
@@ -997,12 +1070,12 @@ function fcRenderTrendChart(){
       maintainAspectRatio:false,
       interaction:{mode:'index', intersect:false},
       plugins:{
-        legend:{labels:{color:'#8b96ad', font:{family:'DM Sans'}}},
+        legend:{labels:{color:cTextDim, font:{family:'DM Sans'}}},
         tooltip:{ callbacks:{ label:(ctx)=>` Qtd. processos: ${fmtNum(ctx.parsed.y)}` } }
       },
       scales:{
-        x:{ ticks:{color:'#8b96ad'}, grid:{color:'rgba(255,255,255,0.05)'} },
-        y:{ position:'left', ticks:{color:'#8b96ad'}, grid:{color:'rgba(255,255,255,0.05)'} }
+        x:{ ticks:{color:cTextDim}, grid:{color:cLine} },
+        y:{ position:'left', ticks:{color:cTextDim}, grid:{color:cLine} }
       }
     }
   });
