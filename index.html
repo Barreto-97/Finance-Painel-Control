@@ -1999,7 +1999,11 @@ function extractDetailsRecords(ws){
   }
 
   const required = ['company code','account','customer name','customer group','debit/credit ind.','net due date','amount in local currency','shipment','branch'];
-  ...
+  const missing = required.filter(r => !(r in colIdx));
+  if(missing.length){
+    throw new Error('Colunas ausentes na aba Details: ' + missing.join(', '));
+  }
+
   const cCC = colIdx['company code'], cAcct = colIdx['account'], cCName = colIdx['customer name'],
         cCGroup = colIdx['customer group'], cDC = colIdx['debit/credit ind.'], cDue = colIdx['net due date'],
         cAmt = colIdx['amount in local currency'], cShip = colIdx['shipment'], cBranch = colIdx['branch'];
