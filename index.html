@@ -2057,6 +2057,7 @@ function extractDetailsRecords(ws){
     const custGroup = String(cell(r, cCGroup) ?? '').trim() || '(Sem Customer Group)';
     const custName = String(cell(r, cCName) ?? '').trim();
     const branch = String(cell(r, cBranch) ?? '').trim() || '(Sem Branch)';
+    const shipment = String(cell(r, cShip) ?? '').trim();
 
     const lead = CLIENT_LEADER_MAP.get(account);
     const gestor = cleanLeaderName(lead && lead.gestor, 'Sem Gestor Atribuído');
@@ -2066,7 +2067,7 @@ function extractDetailsRecords(ws){
     const cls = classifyRecord(due);
 
     out.push({
-      account, customerGroup: custGroup, customerName: custName, branch,
+      account, customerGroup: custGroup, customerName: custName, branch, shipment,
       amount: amt, netDueDate: due,
       gestor, supervisor, gerente,
       agingBucket: cls.agingBucket, statusBucket: cls.statusBucket, isPDDEOMnth: cls.isPDDEOMnth
@@ -2283,16 +2284,16 @@ function getFilteredRecordsWithDrill(){
 function exportFilteredBase(){
   const rows = getFilteredRecordsWithDrill();
   if(!rows.length){ alert('Não há linhas para exportar com o filtro atual.'); return; }
-  const header = ['Account','Customer Name','Customer Group','Branch','Amount in Local Currency','Net Due Date','Gerente','Supervisor','Gestor','Aging','Status'];
+  const header = ['Account','Customer Name','Customer Group','Branch','Shipment','Amount in Local Currency','Net Due Date','Gerente','Supervisor','Gestor','Aging','Status'];
   const data = rows.map(r=>[
-    r.account, r.customerName, r.customerGroup, r.branch, r.amount, r.netDueDate,
+    r.account, r.customerName, r.customerGroup, r.branch, r.shipment, r.amount, r.netDueDate,
     r.gerente, r.supervisor, r.gestor,
     AGING_LABELS[r.agingBucket] || r.agingBucket,
     r.statusBucket + (r.isPDDEOMnth ? ' (PDD EOMnth)' : '')
   ]);
   const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
-  ws['!cols'] = [{wch:14},{wch:30},{wch:24},{wch:12},{wch:18},{wch:12},{wch:22},{wch:22},{wch:22},{wch:14},{wch:16}];
-  ws['!autofilter'] = { ref: `A1:K${data.length+1}` };
+  ws['!cols'] = [{wch:14},{wch:30},{wch:24},{wch:12},{wch:14},{wch:18},{wch:12},{wch:22},{wch:22},{wch:22},{wch:14},{wch:16}];
+  ws['!autofilter'] = { ref: `A1:L${data.length+1}` };
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Aging e PDD');
   const dateTag = state.today.toISOString().slice(0,10);
