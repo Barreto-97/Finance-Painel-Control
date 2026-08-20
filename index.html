@@ -763,6 +763,7 @@ table.comments-table td.name-cell{font-weight:600;color:var(--text-strong);max-w
       </div>
 
       <button class="filter-clear hidden" id="btn-clear-filters">Limpar filtros</button>
+      <button class="pill-btn" id="btn-export-filtered">⭳ Baixar base filtrada</button>
               <button class="pill-btn" id="btn-swap-base" style="display:none;">↺ Trocar base</button>
       <div class="spacer"></div>
       <div class="upload-status" id="dash-meta"></div>
@@ -1579,6 +1580,7 @@ function fcRenderAll(){
     wrap.innerHTML = `
       <div class="filter-bar">
         <div class="crumb" id="fc-crumb"></div>
+        <button class="back-btn" id="fc-export-btn" onclick="fcExportFilteredBase()">⭳ Baixar base filtrada</button>
         <button class="clear-filter hidden" id="fc-clear-filter" onclick="fcClearFilter()">Limpar filtro</button>
       </div>
       <div class="card-grid" id="fc-status-cards"></div>
@@ -1649,6 +1651,21 @@ function fcToggleGestor(name){
 function fcClearFilter(){
   fcFilterPath = {gerenteRegional:null, supervisor:null, gestor:null};
   fcRenderAll();
+}
+
+function fcExportFilteredBase(){
+  if(!fcWeekDatasets.length) return;
+  const rows = fcFilterRows(fcWeekDatasets[0].rows, fcFilterPath);
+  if(!rows.length){ alert('Não há linhas para exportar com o filtro atual.'); return; }
+  const header = ['Job Number','Gerente Regional','Supervisor','Coordenador','Cliente nome Base'];
+  const data = rows.map(r=>[r.jobNumber, r.gerenteRegional, r.supervisor, r.gestor, r.clienteNomeBase]);
+  const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
+  ws['!cols'] = [{wch:16},{wch:24},{wch:24},{wch:24},{wch:32}];
+  ws['!autofilter'] = { ref: `A1:E${data.length+1}` };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Forced Close');
+  const weekTag = fcWeekDatasets[0].label.replace(/\//g,'-');
+  XLSX.writeFile(wb, `Forced_Close_filtrado_${weekTag}.xlsx`);
 }
 
 function fcRenderDrillDown(){
@@ -2253,6 +2270,35 @@ function getFilteredRecords(){
     return statusOk;
   });
 }
+
+/* Aplica os filtros de Aging/Status/Branch e, se houver, também a navegação
+   por hierarquia (Gerente/Supervisor) que estiver selecionada no momento */
+function getFilteredRecordsWithDrill(){
+  let rows = getFilteredRecords();
+  if(state.drill.gerente) rows = rows.filter(r=>r.gerente===state.drill.gerente);
+  if(state.drill.supervisor) rows = rows.filter(r=>r.supervisor===state.drill.supervisor);
+  return rows;
+}
+
+function exportFilteredBase(){
+  const rows = getFilteredRecordsWithDrill();
+  if(!rows.length){ alert('Não há linhas para exportar com o filtro atual.'); return; }
+  const header = ['Account','Customer Name','Customer Group','Branch','Amount in Local Currency','Net Due Date','Gerente','Supervisor','Gestor','Aging','Status'];
+  const data = rows.map(r=>[
+    r.account, r.customerName, r.customerGroup, r.branch, r.amount, r.netDueDate,
+    r.gerente, r.supervisor, r.gestor,
+    AGING_LABELS[r.agingBucket] || r.agingBucket,
+    r.statusBucket + (r.isPDDEOMnth ? ' (PDD EOMnth)' : '')
+  ]);
+  const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
+  ws['!cols'] = [{wch:14},{wch:30},{wch:24},{wch:12},{wch:18},{wch:12},{wch:22},{wch:22},{wch:22},{wch:14},{wch:16}];
+  ws['!autofilter'] = { ref: `A1:K${data.length+1}` };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Aging e PDD');
+  const dateTag = state.today.toISOString().slice(0,10);
+  XLSX.writeFile(wb, `Aging_PDD_filtrado_${dateTag}.xlsx`);
+}
+document.getElementById('btn-export-filtered').addEventListener('click', exportFilteredBase);
 
 function sumBy(records, keyFn){
   const map = new Map();
