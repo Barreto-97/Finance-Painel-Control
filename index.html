@@ -686,21 +686,21 @@ table.comments-table td.name-cell{font-weight:600;color:var(--text-strong);max-w
        SCREEN 1 — UPLOAD
   ============================================================= -->
   <section class="screen active" id="screen-upload">
-    <div class="upload-hero">
+<div class="upload-hero">
       <h2>Carregar base de dados</h2>
-      <p>Anexe a planilha de Aging (aba <b style="color:var(--text-soft)">Details</b>) para gerar o painel. A base de líderes (Gestor / Supervisor / Gerente) já está embutida no código. Opcionalmente, carregue uma base de comentários já preenchida para restaurar Ação e Responsável.</p>
+      <p>Anexe uma ou mais planilhas de Aging (aba <b style="color:var(--text-soft)">Details</b>) para gerar o painel. A base de líderes (Gestor / Supervisor / Gerente) já está embutida no código. Opcionalmente, carregue uma base de comentários já preenchida para restaurar Ação e Responsável.</p>
     </div>
 
     <div class="upload-grid">
       <div class="panel dropzone">
         <span class="dropzone-tag req">Obrigatório</span>
         <h3>Base de Aging (Details)</h3>
-        <p class="desc">Arquivo .xlsx contendo a aba <b>Details</b>, com cabeçalho iniciando em <b>A5</b>. Serão aplicados os filtros: Company Code contém <b>I944</b>, Debit/Credit Ind. = <b>S/H</b>, Shipment iniciando com <b>B</b>.</p>
+        <p class="desc">Arquivo(s) .xlsx/.xlsb contendo a aba <b>Details</b>, com cabeçalho iniciando em <b>A5</b>. Serão aplicados os filtros: Company Code contém <b>I944</b>, Debit/Credit Ind. = <b>S</b>, Shipment iniciando com <b>B</b>. Nome esperado: "Details DD-Mmm-AAAA" (ex: "Details 03-Ago-2026.xlsb") — anexe mais de um arquivo para gerar o gráfico de Tendência; o mais recente vira a base atual do painel.</p>
         <label class="drop-area" id="dz-main" for="file-main">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 16V4m0 0 4 4m-4-4-4 4M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-          <div class="dz-title">Arraste o arquivo .xlsx aqui</div>
-          <div class="dz-sub">ou clique para selecionar</div>
-          <input type="file" id="file-main" accept=".xlsx,.xls">
+          <div class="dz-title">Arraste o(s) arquivo(s) aqui</div>
+          <div class="dz-sub">.xlsx ou .xlsb — pode selecionar vários</div>
+          <input type="file" id="file-main" accept=".xlsx,.xls,.xlsb" multiple>
         </label>
         <div id="chip-main"></div>
       </div>
@@ -728,7 +728,7 @@ table.comments-table td.name-cell{font-weight:600;color:var(--text-strong);max-w
     </div>
 
     <div class="spec-note">
-      <b>Regras aplicadas automaticamente:</b> Company Code contendo "I944" · Debit/Credit Ind. igual a "S" ou "H" · Shipment iniciando com "B" · Gestor/Supervisor/Gerente atribuídos via base de líderes embutida (chave: Account) · Aging e Status calculados com base na data de hoje, do navegador, comparada à Net Due Date.
+      <b>Regras aplicadas automaticamente:</b> Company Code contendo "I944" · Debit/Credit Ind. igual a "S" · Shipment iniciando com "B" · Gestor/Supervisor/Gerente atribuídos via base de líderes embutida (chave: Account) · Aging e Status calculados com base na data de hoje, do navegador, comparada à Net Due Date.
     </div>
   </section>
 
@@ -789,6 +789,35 @@ table.comments-table td.name-cell{font-weight:600;color:var(--text-strong);max-w
       <div class="panel chart-panel">
         <div id="top10-chart" class="barchart"></div>
       </div>
+    </div>
+
+    <div class="section-head">
+      <h2>Tendência</h2>
+      <span class="hint">Evolução por base carregada — respeita os filtros de Aging/Status/Branch acima, além dos filtros dedicados de Gerente/Supervisor abaixo.</span>
+    </div>
+    <div class="weeks-row" id="trend-weeks-row"></div>
+    <div class="filters-bar" style="margin-bottom:14px;">
+      <div class="filter-dd" id="dd-trend-gerente">
+        <button class="filter-trigger" id="trigger-trend-gerente">
+          Gerente <span class="count" id="count-trend-gerente">0</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="filter-menu" id="menu-trend-gerente"></div>
+      </div>
+      <div class="filter-dd" id="dd-trend-supervisor">
+        <button class="filter-trigger" id="trigger-trend-supervisor">
+          Supervisor <span class="count" id="count-trend-supervisor">0</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="filter-menu" id="menu-trend-supervisor"></div>
+      </div>
+      <button class="filter-clear hidden" id="btn-clear-trend-filters">Limpar filtros de Gerente/Supervisor</button>
+    </div>
+    <div class="panel" style="margin-bottom:26px;">
+      <div style="overflow-x:auto;"><table class="data-table" id="trend-table"></table></div>
+    </div>
+    <div class="panel" style="margin-bottom:26px;">
+      <div class="chart-wrap"><canvas id="trend-chart"></canvas></div>
     </div>
 
     <div class="comments-cta">
@@ -1834,10 +1863,15 @@ const AGING_LABELS = {'Not Due':'Not Due','1-10':'1 - 10 dias','11-30':'11 - 30 
 const STATUS_BUCKETS = ['Not due','Overdue','PDD','PDD EOMnth'];
 const STATUS_COLOR = {'Not due':'var(--green-500)','Overdue':'var(--amber-500)','PDD':'var(--red-500)','PDD EOMnth':'var(--violet-500)'};
 let BRANCH_BUCKETS = []; // dinâmico — preenchido em enterDashboard() a partir da base carregada
+let TREND_GERENTE_BUCKETS = [];    // dinâmico — filtro dedicado do gráfico de Tendência
+let TREND_SUPERVISOR_BUCKETS = []; // dinâmico — filtro dedicado do gráfico de Tendência
+let AGING_WEEK_DATASETS = []; // [{label, date, fileName, records}] — uma entrada por arquivo "Details" carregado
+let trendChart = null;
 
 const state = {
-  records: [],            // enriched, filtered-by-spec records
+  records: [],            // enriched, filtered-by-spec records (base mais recente)
   filters: { aging: new Set(AGING_BUCKETS), status: new Set(STATUS_BUCKETS), branch: new Set() },
+  trendFilters: { gerente: new Set(), supervisor: new Set() },
   drill: { gerente: null, supervisor: null },
   comments: new Map(),    // customerGroup -> {acao, responsavel}
   today: startOfDay(new Date()),
@@ -1872,7 +1906,7 @@ function hideLoading(){ document.getElementById('loading-overlay').classList.rem
 /* ============================================================
    FILE UPLOAD — dropzones (main + comments) on screen 1
    ============================================================ */
-let pendingMainFile = null;
+let pendingMainFiles = []; // um File por semana/base "Details"
 let pendingCommentsFile = null;
 
 function wireDropzone(dzId, inputId, chipId, onFile){
@@ -1904,11 +1938,61 @@ function wireDropzone(dzId, inputId, chipId, onFile){
   });
 }
 
-wireDropzone('dz-main','file-main','chip-main', (f)=>{ pendingMainFile = f; });
+/* dz-main agora aceita múltiplos arquivos (uma base "Details" por semana) */
+function wireMainDropzone(){
+  const dz = document.getElementById('dz-main');
+  const input = document.getElementById('file-main');
+  const chipWrap = document.getElementById('chip-main');
+
+  function addFiles(fileList){
+    Array.from(fileList).forEach(f=>{
+      if(!pendingMainFiles.some(x=>x.name===f.name)) pendingMainFiles.push(f);
+    });
+    renderChips();
+    updateGenerateButton();
+  }
+  function renderChips(){
+    chipWrap.innerHTML = pendingMainFiles.map((f,i)=>`
+      <div class="file-chip"><span class="dot"></span><span class="name">${escapeHtml(f.name)}</span><span class="rm" data-idx="${i}" title="Remover">✕</span></div>
+    `).join('');
+    chipWrap.querySelectorAll('.rm').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.preventDefault(); e.stopPropagation();
+        pendingMainFiles.splice(parseInt(btn.dataset.idx,10),1);
+        renderChips(); updateGenerateButton();
+      });
+    });
+  }
+
+  input.addEventListener('change', (e)=>{ addFiles(e.target.files); input.value=''; });
+  dz.addEventListener('dragover', (e)=>{ e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', ()=> dz.classList.remove('dragover'));
+  dz.addEventListener('drop', (e)=>{
+    e.preventDefault(); dz.classList.remove('dragover');
+    if(e.dataTransfer.files && e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+  });
+}
+
+wireMainDropzone();
 wireDropzone('dz-comments','file-comments','chip-comments', (f)=>{ pendingCommentsFile = f; });
 
 function updateGenerateButton(){
-  document.getElementById('btn-generate').disabled = !pendingMainFile;
+  document.getElementById('btn-generate').disabled = pendingMainFiles.length===0;
+}
+
+/* Meses abreviados em pt-BR usados no nome do arquivo, ex: "Details 03-Ago-2026.xlsb" */
+const PT_MONTHS = {jan:0,fev:1,mar:2,abr:3,mai:4,jun:5,jul:6,ago:7,set:8,out:9,nov:10,dez:11};
+function parseDetailsFileDate(fileName){
+  const m = fileName.match(/(\d{1,2})[-\s]([A-Za-zçÇ]{3,9})[-\s](\d{4})/);
+  if(!m) return null;
+  const dd = parseInt(m[1],10);
+  const monKey = m[2].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').slice(0,3);
+  const monIdx = PT_MONTHS[monKey];
+  if(monIdx===undefined) return null;
+  const yyyy = parseInt(m[3],10);
+  const date = new Date(yyyy, monIdx, dd);
+  const label = `${String(dd).padStart(2,'0')}/${String(monIdx+1).padStart(2,'0')}/${String(yyyy).slice(2)}`;
+  return {date, label};
 }
 
 document.getElementById('btn-generate').addEventListener('click', async ()=>{
@@ -1916,23 +2000,37 @@ document.getElementById('btn-generate').addEventListener('click', async ()=>{
   statusEl.className = 'upload-status';
   statusEl.textContent = '';
   try{
-    showLoading('Lendo planilha…', 'Identificando a aba "Details" — para bases muito grandes (100k+ linhas) isso pode levar 1 a 3 minutos.');
-    await sleep(30);
-    const { names } = await readSheetNames(pendingMainFile);
-    let sheetName = names.find(n => normHeader(n) === 'details');
-    if(!sheetName) sheetName = names.find(n => normHeader(n).includes('details'));
-    if(!sheetName) throw new Error('Aba "Details" não encontrada no arquivo.');
+    const weekDatasetsLocal = [];
+    for(let i=0; i<pendingMainFiles.length; i++){
+      const file = pendingMainFiles[i];
+      const dateInfo = parseDetailsFileDate(file.name);
+      if(!dateInfo){
+        throw new Error(`Não foi possível identificar a data no nome do arquivo "${file.name}". Use o padrão "Details DD-Mmm-AAAA" (ex: Details 03-Ago-2026.xlsb).`);
+      }
 
-    showLoading('Processando aba Details…', 'Aplicando filtros e De/Para de Gestor/Supervisor/Gerente.');
-    await sleep(30);
-    const wb = await readWorkbook(pendingMainFile, sheetName);
-    const ws = wb.Sheets[sheetName];
-    const records = extractDetailsRecords(ws);
-    if(records.length === 0){
-      throw new Error('Nenhum registro encontrado após os filtros (I944 / S,H / Shipment iniciando com B). Confira a aba "Details" e o cabeçalho em A5.');
+      showLoading(`Lendo ${file.name}…`, `Arquivo ${i+1} de ${pendingMainFiles.length} — para bases muito grandes (100k+ linhas) isso pode levar 1 a 3 minutos.`);
+      await sleep(30);
+      const { names } = await readSheetNames(file);
+      let sheetName = names.find(n => normHeader(n) === 'details');
+      if(!sheetName) sheetName = names.find(n => normHeader(n).includes('details'));
+      if(!sheetName) throw new Error(`Aba "Details" não encontrada em "${file.name}".`);
+
+      showLoading(`Processando ${file.name}…`, 'Aplicando filtros e De/Para de Gestor/Supervisor/Gerente.');
+      await sleep(30);
+      const wb = await readWorkbook(file, sheetName);
+      const ws = wb.Sheets[sheetName];
+      const records = extractDetailsRecords(ws);
+      if(records.length === 0){
+        throw new Error(`Nenhum registro encontrado em "${file.name}" após os filtros (I944 / S / Shipment iniciando com B).`);
+      }
+      weekDatasetsLocal.push({ label: dateInfo.label, date: dateInfo.date, fileName: file.name, records });
     }
-    state.records = records;
-    state.fileName = pendingMainFile.name;
+
+    weekDatasetsLocal.sort((a,b)=> b.date - a.date);
+    AGING_WEEK_DATASETS = weekDatasetsLocal;
+    const current = AGING_WEEK_DATASETS[0];
+    state.records = current.records;
+    state.fileName = current.fileName;
     state.loadedAt = new Date();
 
     if(pendingCommentsFile){
@@ -1948,7 +2046,7 @@ document.getElementById('btn-generate').addEventListener('click', async ()=>{
     hideLoading();
     console.error(err);
     statusEl.className = 'upload-status err';
-    statusEl.textContent = '⚠ ' + (err.message || 'Erro ao processar o arquivo.');
+    statusEl.textContent = '⚠ ' + (err.message || 'Erro ao processar os arquivos.');
   }
 });
 
@@ -2157,7 +2255,12 @@ function enterDashboard(){
   state.drill.gerente = null; state.drill.supervisor = null;
   BRANCH_BUCKETS = Array.from(new Set(state.records.map(r=>r.branch))).sort((a,b)=>a.localeCompare(b));
   state.filters.branch = new Set(BRANCH_BUCKETS);
+  TREND_GERENTE_BUCKETS = Array.from(new Set(state.records.map(r=>r.gerente))).sort((a,b)=>a.localeCompare(b));
+  TREND_SUPERVISOR_BUCKETS = Array.from(new Set(state.records.map(r=>r.supervisor))).sort((a,b)=>a.localeCompare(b));
+  state.trendFilters.gerente = new Set(TREND_GERENTE_BUCKETS);
+  state.trendFilters.supervisor = new Set(TREND_SUPERVISOR_BUCKETS);
   buildFilterMenus();
+  buildTrendFilterMenus();
   renderAll();
 }
 
@@ -2260,6 +2363,181 @@ document.addEventListener('click', ()=>{
 document.querySelectorAll('.filter-menu').forEach(m=> m && m.addEventListener('click', e=>e.stopPropagation()));
 
 /* ============================================================
+   TENDÊNCIA — filtros dedicados de Gerente/Supervisor + gráfico
+   ============================================================ */
+function buildTrendFilterMenus(){
+  const gerenteMenu = document.getElementById('menu-trend-gerente');
+  gerenteMenu.innerHTML = TREND_GERENTE_BUCKETS.map(b => `
+    <label class="filter-opt">
+      <input type="checkbox" data-tdim="gerente" value="${escapeHtml(b)}" ${state.trendFilters.gerente.has(b)?'checked':''}>
+      <span>${escapeHtml(b)}</span>
+    </label>`).join('') + trendMenuFooter('gerente');
+
+  const supervisorMenu = document.getElementById('menu-trend-supervisor');
+  supervisorMenu.innerHTML = TREND_SUPERVISOR_BUCKETS.map(b => `
+    <label class="filter-opt">
+      <input type="checkbox" data-tdim="supervisor" value="${escapeHtml(b)}" ${state.trendFilters.supervisor.has(b)?'checked':''}>
+      <span>${escapeHtml(b)}</span>
+    </label>`).join('') + trendMenuFooter('supervisor');
+
+  [gerenteMenu, supervisorMenu].forEach(menu=>{
+    menu.querySelectorAll('input[type=checkbox]').forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        const dim = cb.dataset.tdim, val = cb.value;
+        const set = state.trendFilters[dim];
+        if(cb.checked) set.add(val); else set.delete(val);
+        onTrendFiltersChanged();
+      });
+    });
+    menu.querySelector('[data-act=all]').addEventListener('click', ()=>{
+      const dim = menu.querySelector('[data-act=all]').dataset.dim;
+      state.trendFilters[dim] = new Set(dim==='gerente'?TREND_GERENTE_BUCKETS:TREND_SUPERVISOR_BUCKETS);
+      buildTrendFilterMenus(); onTrendFiltersChanged();
+    });
+    menu.querySelector('[data-act=none]').addEventListener('click', ()=>{
+      const dim = menu.querySelector('[data-act=none]').dataset.dim;
+      state.trendFilters[dim] = new Set();
+      buildTrendFilterMenus(); onTrendFiltersChanged();
+    });
+  });
+}
+function trendMenuFooter(dim){
+  return `<div class="filter-menu-footer">
+    <button data-act="all" data-dim="${dim}">Selecionar todos</button>
+    <button data-act="none" data-dim="${dim}">Limpar</button>
+  </div>`;
+}
+function onTrendFiltersChanged(){
+  document.getElementById('count-trend-gerente').textContent = state.trendFilters.gerente.size;
+  document.getElementById('count-trend-supervisor').textContent = state.trendFilters.supervisor.size;
+  const isDefault = state.trendFilters.gerente.size===TREND_GERENTE_BUCKETS.length && state.trendFilters.supervisor.size===TREND_SUPERVISOR_BUCKETS.length;
+  document.getElementById('btn-clear-trend-filters').classList.toggle('hidden', isDefault);
+  renderTrend();
+}
+document.getElementById('btn-clear-trend-filters').addEventListener('click', ()=>{
+  state.trendFilters.gerente = new Set(TREND_GERENTE_BUCKETS);
+  state.trendFilters.supervisor = new Set(TREND_SUPERVISOR_BUCKETS);
+  buildTrendFilterMenus(); onTrendFiltersChanged();
+});
+wireDropdownToggle('trigger-trend-gerente','dd-trend-gerente');
+wireDropdownToggle('trigger-trend-supervisor','dd-trend-supervisor');
+
+/* Aplica os filtros de Aging/Status/Branch (os mesmos do topo) + os filtros
+   dedicados de Gerente/Supervisor do gráfico de Tendência */
+function getTrendFilteredRecords(records){
+  const {aging, status, branch} = state.filters;
+  const {gerente, supervisor} = state.trendFilters;
+  return records.filter(r=>{
+    if(!aging.has(r.agingBucket)) return false;
+    if(!branch.has(r.branch)) return false;
+    if(!gerente.has(r.gerente)) return false;
+    if(!supervisor.has(r.supervisor)) return false;
+    const statusOk = status.has(r.statusBucket) || (status.has('PDD EOMnth') && r.isPDDEOMnth);
+    return statusOk;
+  });
+}
+
+function renderTrend(){
+  const tableEl = document.getElementById('trend-table');
+  const weeksRowEl = document.getElementById('trend-weeks-row');
+  if(!tableEl || !weeksRowEl) return;
+
+  if(AGING_WEEK_DATASETS.length === 0){
+    weeksRowEl.innerHTML = '';
+    tableEl.innerHTML = '';
+    if(trendChart){ trendChart.destroy(); trendChart = null; }
+    return;
+  }
+
+  weeksRowEl.innerHTML = AGING_WEEK_DATASETS.map((d,i)=>`
+    <div class="week-chip ${i===0?'current':''}">
+      <span class="dot"></span> ${d.label} ${i===0?'· base atual':''} <span style="color:var(--text-faint);">(${fmtNum(d.records.length)} lançamentos)</span>
+    </div>
+  `).join('');
+
+  if(AGING_WEEK_DATASETS.length < 2){
+    tableEl.innerHTML = `<tbody><tr><td style="padding:16px 4px;color:var(--text-faint);">Carregue mais de uma base "Details" (com datas diferentes no nome) para ver a evolução semanal.</td></tr></tbody>`;
+    if(trendChart){ trendChart.destroy(); trendChart = null; }
+    return;
+  }
+
+  const orderedDesc = [...AGING_WEEK_DATASETS]; // já vem desc (mais recente primeiro)
+  const results = orderedDesc.map(ds=>{
+    const filtered = getTrendFilteredRecords(ds.records);
+    const sum = filtered.reduce((s,r)=>s+r.amount,0);
+    return { label: ds.label, sum, count: filtered.length };
+  });
+
+  let rowsHtml = '';
+  for(let i=0;i<results.length;i++){
+    const cur = results[i];
+    const prev = results[i+1];
+    let deltaSum = '', deltaCount = '';
+    if(prev){
+      const dS = prev.sum===0 ? (cur.sum===0?0:100) : ((cur.sum-prev.sum)/prev.sum*100);
+      const dC = prev.count===0 ? (cur.count===0?0:100) : ((cur.count-prev.count)/prev.count*100);
+      deltaSum = trendDeltaBadge(dS);
+      deltaCount = trendDeltaBadge(dC);
+    }
+    rowsHtml += `<tr>
+      <td>${cur.label}</td>
+      <td style="text-align:right;">${fmtBRL(cur.sum)}</td>
+      <td style="text-align:right;">${fmtNum(cur.count)}</td>
+      <td style="text-align:right;">${deltaSum}</td>
+      <td style="text-align:right;">${deltaCount}</td>
+    </tr>`;
+  }
+  tableEl.innerHTML = `
+    <thead><tr>
+      <th>Semana</th><th style="text-align:right;">Valor total</th><th style="text-align:right;">Qtd. lançamentos</th><th style="text-align:right;">Δ Valor</th><th style="text-align:right;">Δ Qtd.</th>
+    </tr></thead>
+    <tbody>${rowsHtml}</tbody>
+  `;
+
+  const orderedAsc = [...AGING_WEEK_DATASETS].sort((a,b)=>a.date-b.date);
+  const labels = orderedAsc.map(d=>d.label);
+  const sums = orderedAsc.map(d=> getTrendFilteredRecords(d.records).reduce((s,r)=>s+r.amount,0));
+  const counts = orderedAsc.map(d=> getTrendFilteredRecords(d.records).length);
+
+  const cs = getComputedStyle(document.documentElement);
+  const cBlue = cs.getPropertyValue('--blue-400').trim() || '#5b93ff';
+  const cCyan = cs.getPropertyValue('--cyan-400').trim() || '#5fd4d0';
+  const cTextFaint = cs.getPropertyValue('--text-faint').trim() || '#8b96ad';
+  const cLine = cs.getPropertyValue('--panel-border').trim() || 'rgba(255,255,255,0.08)';
+
+  const ctx = document.getElementById('trend-chart').getContext('2d');
+  if(trendChart) trendChart.destroy();
+  trendChart = new Chart(ctx, {
+    type:'line',
+    data:{
+      labels,
+      datasets:[
+        { label:'Valor total (R$)', data: sums, borderColor:cBlue, backgroundColor:cBlue+'20', yAxisID:'y', tension:0.35, fill:true, pointRadius:4, pointBackgroundColor:cBlue },
+        { label:'Qtd. lançamentos', data: counts, borderColor:cCyan, backgroundColor:cCyan+'15', yAxisID:'y1', tension:0.35, fill:false, pointRadius:4, pointBackgroundColor:cCyan }
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false},
+      plugins:{
+        legend:{labels:{color:cTextFaint, font:{family:'DM Sans'}}},
+        tooltip:{ callbacks:{ label:(ctx)=> ctx.dataset.yAxisID==='y' ? ` ${ctx.dataset.label}: ${fmtBRL(ctx.parsed.y)}` : ` ${ctx.dataset.label}: ${fmtNum(ctx.parsed.y)}` } }
+      },
+      scales:{
+        x:{ ticks:{color:cTextFaint}, grid:{color:cLine} },
+        y:{ position:'left', ticks:{color:cTextFaint, callback:v=>fmtBRL(v)}, grid:{color:cLine} },
+        y1:{ position:'right', ticks:{color:cTextFaint}, grid:{display:false} }
+      }
+    }
+  });
+}
+function trendDeltaBadge(pct){
+  if(!isFinite(pct)) pct = 0;
+  const cls = pct>0.1 ? 'delta-up' : (pct<-0.1 ? 'delta-down' : 'delta-flat');
+  const sign = pct>0 ? '+' : '';
+  return `<span class="${cls}">${sign}${pct.toFixed(1)}%</span>`;
+}
+
+/* ============================================================
    DERIVED DATA
    ============================================================ */
 function getFilteredRecords(){
@@ -2319,6 +2597,7 @@ function renderAll(){
   renderKPIs(filtered);
   renderHierarchy(filtered);
   renderTop10(filtered);
+  renderTrend();
 }
 
 /* ---------- KPI cards ---------- */
@@ -2549,9 +2828,14 @@ let commentsRowsCache = [];
 function renderCommentsTable(){
   const filtered = getFilteredRecords();
   const sums = sumBy(filtered, r=>r.customerGroup);
+  const leaderByGroup = new Map();
+  filtered.forEach(r=>{
+    if(!leaderByGroup.has(r.customerGroup)) leaderByGroup.set(r.customerGroup, {gerente:r.gerente, supervisor:r.supervisor});
+  });
   const rows = Array.from(sums.entries()).sort((a,b)=>b[1]-a[1]).map(([cliente,value])=>{
     const c = state.comments.get(cliente) || {acao:'', responsavel:''};
-    return { cliente, value, acao:c.acao||'', responsavel:c.responsavel||'' };
+    const lead = leaderByGroup.get(cliente) || {gerente:'', supervisor:''};
+    return { cliente, value, gerente: lead.gerente, supervisor: lead.supervisor, acao:c.acao||'', responsavel:c.responsavel||'' };
   });
   commentsRowsCache = rows;
   drawCommentsTable(rows);
@@ -2565,12 +2849,14 @@ function drawCommentsTable(rows){
   }
   wrap.innerHTML = `<table class="data-table comments-table">
     <thead><tr>
-      <th>Cliente</th><th style="text-align:right;">Value</th><th style="min-width:280px;">Ação</th><th style="min-width:160px;">Responsável</th>
+      <th>Cliente</th><th style="text-align:right;">Value</th><th>Gerente</th><th>Supervisor</th><th style="min-width:280px;">Ação</th><th style="min-width:160px;">Responsável</th>
     </tr></thead>
     <tbody>${rows.map((r,i)=>`
       <tr data-cliente="${escapeHtml(r.cliente)}">
         <td class="name-cell">${escapeHtml(r.cliente)}</td>
         <td class="num">${fmtBRL(r.value)}</td>
+        <td>${escapeHtml(r.gerente||'')}</td>
+        <td>${escapeHtml(r.supervisor||'')}</td>
         <td><input type="text" data-field="acao" data-idx="${i}" value="${escapeHtml(r.acao)}" placeholder="Descrever plano de ação…"></td>
         <td><input type="text" data-field="responsavel" data-idx="${i}" value="${escapeHtml(r.responsavel)}" placeholder="Nome"></td>
       </tr>`).join('')}</tbody>
