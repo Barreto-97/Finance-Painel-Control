@@ -779,7 +779,7 @@ table.comments-table td.name-cell{font-weight:600;color:var(--text-strong);max-w
     <div id="hierarchy-container"></div>
 
     <div class="section-head">
-      <h2>Top 10 clientes — Amount in Local Currency</h2>
+      <h2>Top 20 clientes — Amount in Local Currency</h2>
       <span class="hint" id="top10-hint"></span>
     </div>
     <div class="top10-grid">
@@ -2749,19 +2749,24 @@ function emptyState(title, sub){
   </div>`;
 }
 
-/* ---------- Top 10 table + chart ---------- */
+/* ---------- Top 20 table + chart ---------- */
 function renderTop10(filtered){
   const sums = sumBy(filtered, r=>r.customerGroup);
-  const top = Array.from(sums.entries()).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  const top = Array.from(sums.entries()).sort((a,b)=>b[1]-a[1]).slice(0,20);
   document.getElementById('top10-hint').textContent = `com base nos filtros ativos · ${fmtNum(filtered.length)} lançamentos`;
+
+  const gerenteByGroup = new Map();
+  filtered.forEach(r=>{
+    if(!gerenteByGroup.has(r.customerGroup)) gerenteByGroup.set(r.customerGroup, r.gerente);
+  });
 
   const tableEl = document.getElementById('top10-table');
   if(top.length===0){
     tableEl.innerHTML = emptyState('Sem dados','Ajuste os filtros.');
   } else {
     tableEl.innerHTML = `<table class="data-table">
-      <thead><tr><th></th><th>Cliente</th><th style="text-align:right;">Amount in Local Currency</th></tr></thead>
-      <tbody>${top.map(([name,val],i)=>`<tr><td class="rank">${i+1}</td><td>${escapeHtml(name)}</td><td class="num">${fmtBRL(val)}</td></tr>`).join('')}</tbody>
+      <thead><tr><th></th><th>Cliente</th><th>Gerente</th><th style="text-align:right;">Amount in Local Currency</th></tr></thead>
+      <tbody>${top.map(([name,val],i)=>`<tr><td class="rank">${i+1}</td><td>${escapeHtml(name)}</td><td>${escapeHtml(gerenteByGroup.get(name)||'')}</td><td class="num">${fmtBRL(val)}</td></tr>`).join('')}</tbody>
     </table>`;
   }
 
@@ -2771,7 +2776,7 @@ function renderTop10(filtered){
 function renderTop10Chart(topArg){
   const top = topArg || (function(){
     const sums = sumBy(getFilteredRecords(), r=>r.customerGroup);
-    return Array.from(sums.entries()).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    return Array.from(sums.entries()).sort((a,b)=>b[1]-a[1]).slice(0,20);
   })();
   const el = document.getElementById('top10-chart');
   if(!el) return;
