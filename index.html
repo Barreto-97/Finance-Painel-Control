@@ -2233,13 +2233,20 @@ document.getElementById('link-download-template').addEventListener('click', (e)=
 });
 
 function downloadCommentsTemplate(rows, filename){
-  const data = [['Cliente','Value','Ação','Responsável']];
-  rows.forEach(r => data.push([r.cliente, r.value, r.acao||'', r.responsavel||'']));
-  if(rows.length===0) data.push(['Ex: NOME DO CLIENTE', 0, '', '']);
+  const data = [['Cliente','Value','Gerente','Supervisor','Ação','Responsável']];
+  rows.forEach(r => data.push([r.cliente, r.value, r.gerente||'', r.supervisor||'', r.acao||'', r.responsavel||'']));
+  if(rows.length===0) data.push(['Ex: NOME DO CLIENTE', 0, '', '', '', '']);
   const ws = XLSX.utils.aoa_to_sheet(data);
-  ws['!cols'] = [{wch:34},{wch:16},{wch:50},{wch:24}];
+  ws['!cols'] = [{wch:34},{wch:16},{wch:24},{wch:24},{wch:50},{wch:24}];
+
+  const filesAoa = buildFilesSheetAOA();
+  const wsFiles = XLSX.utils.aoa_to_sheet(filesAoa);
+  wsFiles['!cols'] = [{wch:14},{wch:30},{wch:24},{wch:12},{wch:14},{wch:18},{wch:12},{wch:22},{wch:22},{wch:22},{wch:14},{wch:16}];
+  if(filesAoa.length>1) wsFiles['!autofilter'] = { ref: `A1:L${filesAoa.length}` };
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Comentarios');
+  XLSX.utils.book_append_sheet(wb, wsFiles, 'Files');
   XLSX.writeFile(wb, filename);
 }
 
@@ -2559,9 +2566,10 @@ function getFilteredRecordsWithDrill(){
   return rows;
 }
 
-function exportFilteredBase(){
+/* Monta a matriz (cabeçalho + linhas) da base filtrada completa — reaproveitada
+   tanto pelo botão "Baixar base filtrada" quanto pela aba "Files" do export de Comentários */
+function buildFilesSheetAOA(){
   const rows = getFilteredRecordsWithDrill();
-  if(!rows.length){ alert('Não há linhas para exportar com o filtro atual.'); return; }
   const header = ['Account','Customer Name','Customer Group','Branch','Shipment','Amount in Local Currency','Net Due Date','Gerente','Supervisor','Gestor','Aging','Status'];
   const data = rows.map(r=>[
     r.account, r.customerName, r.customerGroup, r.branch, r.shipment, r.amount, r.netDueDate,
@@ -2569,9 +2577,15 @@ function exportFilteredBase(){
     AGING_LABELS[r.agingBucket] || r.agingBucket,
     r.statusBucket + (r.isPDDEOMnth ? ' (PDD EOMnth)' : '')
   ]);
-  const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
+  return [header, ...data];
+}
+
+function exportFilteredBase(){
+  const aoa = buildFilesSheetAOA();
+  if(aoa.length<=1){ alert('Não há linhas para exportar com o filtro atual.'); return; }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws['!cols'] = [{wch:14},{wch:30},{wch:24},{wch:12},{wch:14},{wch:18},{wch:12},{wch:22},{wch:22},{wch:22},{wch:14},{wch:16}];
-  ws['!autofilter'] = { ref: `A1:L${data.length+1}` };
+  ws['!autofilter'] = { ref: `A1:L${aoa.length}` };
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Aging e PDD');
   const dateTag = state.today.toISOString().slice(0,10);
