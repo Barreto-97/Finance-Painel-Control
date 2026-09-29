@@ -764,6 +764,7 @@ table.comments-table td.name-cell{font-weight:600;color:var(--text-strong);max-w
 
       <button class="filter-clear hidden" id="btn-clear-filters">Limpar filtros</button>
       <button class="pill-btn" id="btn-export-filtered">⭳ Baixar base filtrada</button>
+      <button class="pill-btn" id="btn-export-html">⭳ Baixar painel em HTML</button>
               <button class="pill-btn" id="btn-swap-base" style="display:none;">↺ Trocar base</button>
       <div class="spacer"></div>
       <div class="upload-status" id="dash-meta"></div>
@@ -868,7 +869,30 @@ table.comments-table td.name-cell{font-weight:600;color:var(--text-strong);max-w
 
 </div>
 
+<!--PANEL_BOOTSTRAP_SLOT-->
+
 <script>
+const PRISTINE_HTML = document.documentElement.outerHTML;
+
+/* Gera um .html autônomo: pega a cópia "limpa" da página (sem dados)
+   e injeta os dados atualmente carregados no marcador acima, antes do
+   script principal rodar — assim, ao abrir o arquivo baixado, o painel
+   já nasce carregado, com filtros/drill-down/exports funcionando normalmente. */
+function downloadPanelSnapshot(bootstrapPayload, filenameSuffix){
+  const json = JSON.stringify(bootstrapPayload).replace(/</g, '\u003c');
+  const bootScript = '<script>window.__PANEL_BOOTSTRAP__ = ' + json + ';<' + '/script>';
+  const html = PRISTINE_HTML.replace('<!--PANEL_BOOTSTRAP_SLOT-->', bootScript);
+  const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Finance_Painel_${filenameSuffix}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+
 /* ============================================================
    NAVIGATION
    ============================================================ */
@@ -1091,6 +1115,7 @@ function renderAll(){
     wrap.innerHTML = `
       <div class="filter-bar">
         <div class="crumb" id="crumb"></div>
+        <button class="back-btn" id="debitos-export-html-btn" onclick="debitosExportPanel()">⭳ Baixar painel em HTML</button>
         <button class="clear-filter hidden" id="clear-filter" onclick="clearFilter()">Limpar filtro</button>
       </div>
       <div class="card-grid" id="status-cards"></div>
@@ -1160,6 +1185,27 @@ function toggleGestor(gestor){
 }
 function clearFilter(){
   filterPath = {status:null, gerente:null, gestor:null};
+  renderAll();
+}
+
+function debitosExportPanel(){
+  if(!weekDatasets.length){ alert('Carregue uma base antes de exportar o painel.'); return; }
+  const payload = {
+    module: 'debitos',
+    weekDatasets: weekDatasets.map(d=>({ label:d.label, date:d.date.toISOString(), fileName:d.fileName, rows:d.rows }))
+  };
+  downloadPanelSnapshot(payload, 'Debitos_' + dateStampGlobal());
+}
+function dateStampGlobal(){
+  const d = new Date();
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`;
+}
+
+if(window.__PANEL_BOOTSTRAP__ && window.__PANEL_BOOTSTRAP__.module === 'debitos'){
+  const boot = window.__PANEL_BOOTSTRAP__;
+  weekDatasets = boot.weekDatasets.map(d=>({ ...d, date: new Date(d.date) }));
+  openScreen('debitos');
   renderAll();
 }
 
@@ -1610,6 +1656,7 @@ function fcRenderAll(){
       <div class="filter-bar">
         <div class="crumb" id="fc-crumb"></div>
         <button class="back-btn" id="fc-export-btn" onclick="fcExportFilteredBase()">⭳ Baixar base filtrada</button>
+        <button class="back-btn" id="fc-export-html-btn" onclick="fcExportPanel()">⭳ Baixar painel em HTML</button>
         <button class="clear-filter hidden" id="fc-clear-filter" onclick="fcClearFilter()">Limpar filtro</button>
       </div>
       <div class="card-grid" id="fc-status-cards"></div>
@@ -1679,6 +1726,22 @@ function fcToggleGestor(name){
 }
 function fcClearFilter(){
   fcFilterPath = {gerenteRegional:null, supervisor:null, gestor:null};
+  fcRenderAll();
+}
+
+function fcExportPanel(){
+  if(!fcWeekDatasets.length){ alert('Carregue uma base antes de exportar o painel.'); return; }
+  const payload = {
+    module: 'forcedclose',
+    fcWeekDatasets: fcWeekDatasets.map(d=>({ label:d.label, date:d.date.toISOString(), fileName:d.fileName, rows:d.rows }))
+  };
+  downloadPanelSnapshot(payload, 'ForcedClose_' + dateStampGlobal());
+}
+
+if(window.__PANEL_BOOTSTRAP__ && window.__PANEL_BOOTSTRAP__.module === 'forcedclose'){
+  const boot = window.__PANEL_BOOTSTRAP__;
+  fcWeekDatasets = boot.fcWeekDatasets.map(d=>({ ...d, date: new Date(d.date) }));
+  openScreen('forcedclose');
   fcRenderAll();
 }
 
@@ -2920,6 +2983,36 @@ function dateStamp(){
   const d = new Date();
   const p = n => String(n).padStart(2,'0');
   return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`;
+}
+
+function agingExportPanel(){
+  if(!AGING_WEEK_DATASETS.length){ alert('Carregue uma base antes de exportar o painel.'); return; }
+  const payload = {
+    module: 'aging',
+    fileName: state.fileName,
+    weekDatasets: AGING_WEEK_DATASETS.map(d=>({
+      label: d.label, date: d.date.toISOString(), fileName: d.fileName,
+      records: d.records.map(r=>({ ...r, netDueDate: r.netDueDate.toISOString() }))
+    })),
+    comments: Array.from(state.comments.entries())
+  };
+  downloadPanelSnapshot(payload, 'Aging_PDD_' + dateStamp());
+}
+document.getElementById('btn-export-html').addEventListener('click', agingExportPanel);
+
+if(window.__PANEL_BOOTSTRAP__ && window.__PANEL_BOOTSTRAP__.module === 'aging'){
+  const boot = window.__PANEL_BOOTSTRAP__;
+  AGING_WEEK_DATASETS = boot.weekDatasets.map(d=>({
+    label: d.label, date: new Date(d.date), fileName: d.fileName,
+    records: d.records.map(r=>({ ...r, netDueDate: new Date(r.netDueDate) }))
+  }));
+  const current = AGING_WEEK_DATASETS[0];
+  state.records = current.records;
+  state.fileName = boot.fileName || current.fileName;
+  state.loadedAt = new Date();
+  state.comments = new Map(boot.comments || []);
+  openScreen('aging');
+  enterDashboard();
 }
 
 })();
