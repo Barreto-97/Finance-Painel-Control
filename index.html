@@ -545,17 +545,17 @@ table.data-table td.rank{color:var(--text-faint);font-family:var(--font-mono);wi
 /* ============================================================
    COMMENTS PANEL (full-screen overlay)
    ============================================================ */
-#comments-panel{display:none;}
-#comments-panel.overlay{
+#comments-panel, #fc-comments-panel{display:none;}
+#comments-panel.overlay, #fc-comments-panel.overlay{
   position:fixed;inset:0;background:rgba(5,11,26,0.6);backdrop-filter:blur(4px);
   z-index:150;display:flex;justify-content:flex-end;
 }
-#comments-panel .cp-sheet{
+#comments-panel .cp-sheet, #fc-comments-panel .cp-sheet{
   width:min(1080px, 100%);height:100%;background:var(--navy-950);border-left:1px solid var(--panel-border);
   display:flex;flex-direction:column;animation:slideIn .28s ease both;
   box-shadow:-30px 0 60px -20px rgba(0,0,0,0.5);
 }
-html[data-theme="light"] #comments-panel .cp-sheet{background:#f4f7fd;}
+html[data-theme="light"] #comments-panel .cp-sheet, html[data-theme="light"] #fc-comments-panel .cp-sheet{background:#f4f7fd;}
 @keyframes slideIn{from{transform:translateX(40px);opacity:0;}to{transform:translateX(0);opacity:1;}}
 .cp-header{padding:22px 26px;border-bottom:1px solid var(--panel-border);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;}
 .cp-header h2{font-size:18px;font-weight:800;color:var(--text-strong);}
@@ -595,7 +595,7 @@ table.comments-table td.name-cell{font-weight:600;color:var(--text-strong);max-w
   .kpi-card{padding:15px 16px;}
   .brand-text h1{font-size:15px;}
   .brand-text span{display:none;}
-  #comments-panel .cp-sheet{width:100%;}
+   #comments-panel .cp-sheet, #fc-comments-panel .cp-sheet{width:100%;}
 }
 </style>
 </head>
@@ -650,12 +650,46 @@ table.comments-table td.name-cell{font-weight:600;color:var(--text-strong);max-w
       <div class="u-icon">⬆</div>
       <h3>Arraste os arquivos .xlsx aqui ou clique para selecionar</h3>
       <p>Nome esperado: "Base Forced v1 - DD-MM-AAAA.xlsx" e/ou "Base Forced v2 - DD-MM-AAAA.xlsx" — arquivos da mesma data são unificados automaticamente. Todo o tratamento (filtros, datas, deduplicação e cruzamento com Clientes/Líderes) é feito no código, sem necessidade de tratar a base antes.</p>
-      <input type="file" id="fc-file-input" multiple accept=".xlsx,.xls">
+<input type="file" id="fc-file-input" multiple accept=".xlsx,.xls">
+    </div>
+
+    <div class="upload-zone" id="fc-comments-upload-zone" style="padding:22px 30px;">
+      <h3>💬 Base de comentários (opcional)</h3>
+      <p>Arquivo .xlsx/.csv com as colunas Cliente / Ação / Responsável — restaura os comentários já preenchidos. <a href="#" id="fc-link-download-template" style="color:var(--blue-400);">⭳ Baixar modelo em branco</a></p>
+      <div id="fc-chip-comments"></div>
+      <input type="file" id="fc-file-comments" accept=".xlsx,.xls,.csv" style="display:none;">
     </div>
 
     <div class="weeks-row" id="fc-weeks-row"></div>
 
     <div id="fc-content"></div>
+
+    <!-- Comments panel (overlay) — Forced Close -->
+    <div id="fc-comments-panel">
+      <div class="cp-sheet">
+        <div class="cp-header">
+          <div>
+            <h2>Comentários por cliente — Forced Close</h2>
+            <p id="fc-cp-subtitle"></p>
+          </div>
+          <div class="cp-actions">
+            <button class="pill-btn" id="fc-btn-download-comments">⭳ Baixar base (.xlsx)</button>
+            <label class="pill-btn" for="fc-file-comments-inline" style="margin:0;">⭱ Carregar base</label>
+            <input type="file" id="fc-file-comments-inline" accept=".xlsx,.xls,.csv" style="display:none;">
+            <button class="icon-btn" id="fc-btn-close-comments" title="Fechar">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="cp-body">
+          <div class="cp-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" id="fc-cp-search-input" placeholder="Buscar cliente…">
+          </div>
+          <div class="client-table-wrap" id="fc-cp-table-wrap"></div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- PENDÊNCIA DE DÉBITOS IMPOSTOS SCREEN -->
@@ -1401,6 +1435,8 @@ const CLIENT_LEADER_MAP = (function(){
 
 let fcRawByDate = {};        // { 'DD/MM/AA': {label, date, v1: records|null, v2: records|null} }
 let fcWeekDatasets = [];     // [{label, date, rows: [...processado...]}]
+let fcComments = new Map();  // clienteNomeBase -> {acao, responsavel}
+let fcCommentsRowsCache = [];
 let fcFilterPath = { gerenteRegional:null, supervisor:null, gestor:null };
 let fcTrendChart = null;
 const FC_COLORS = {};
@@ -1655,6 +1691,7 @@ function fcRenderAll(){
     wrap.innerHTML = `
       <div class="filter-bar">
         <div class="crumb" id="fc-crumb"></div>
+        <button class="back-btn" id="fc-open-comments-btn" onclick="fcOpenCommentsPanel()">💬 Comentários</button>
         <button class="back-btn" id="fc-export-btn" onclick="fcExportFilteredBase()">⭳ Baixar base filtrada</button>
         <button class="back-btn" id="fc-export-html-btn" onclick="fcExportPanel()">⭳ Baixar painel em HTML</button>
         <button class="clear-filter hidden" id="fc-clear-filter" onclick="fcClearFilter()">Limpar filtro</button>
@@ -1731,9 +1768,10 @@ function fcClearFilter(){
 
 function fcExportPanel(){
   if(!fcWeekDatasets.length){ alert('Carregue uma base antes de exportar o painel.'); return; }
-  const payload = {
+ const payload = {
     module: 'forcedclose',
-    fcWeekDatasets: fcWeekDatasets.map(d=>({ label:d.label, date:d.date.toISOString(), fileName:d.fileName, rows:d.rows }))
+    fcWeekDatasets: fcWeekDatasets.map(d=>({ label:d.label, date:d.date.toISOString(), fileName:d.fileName, rows:d.rows })),
+    comments: Array.from(fcComments.entries())
   };
   downloadPanelSnapshot(payload, 'ForcedClose_' + dateStampGlobal());
 }
@@ -1741,6 +1779,7 @@ function fcExportPanel(){
 if(window.__PANEL_BOOTSTRAP__ && window.__PANEL_BOOTSTRAP__.module === 'forcedclose'){
   const boot = window.__PANEL_BOOTSTRAP__;
   fcWeekDatasets = boot.fcWeekDatasets.map(d=>({ ...d, date: new Date(d.date) }));
+  fcComments = new Map(boot.comments || []);
   openScreen('forcedclose');
   fcRenderAll();
 }
@@ -1759,6 +1798,174 @@ function fcExportFilteredBase(){
   const weekTag = fcWeekDatasets[0].label.replace(/\//g,'-');
   XLSX.writeFile(wb, `Forced_Close_filtrado_${weekTag}.xlsx`);
 }
+
+/* ============================================================
+   FORCED CLOSE — COMENTÁRIOS (Cliente / Qtd. Processos / Gerente Regional / Supervisor / Ação / Responsável)
+   ============================================================ */
+function fcLoadCommentsFromWorkbook(wb){
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
+  if(!rows.length) return;
+  const header = rows[0].map(h => fcNormHeader(h));
+  const iCliente = header.findIndex(h => h==='cliente');
+  const iAcao = header.findIndex(h => h==='acao' || h==='acao (plano de acao)');
+  const iResp = header.findIndex(h => h==='responsavel');
+  if(iCliente === -1) return;
+  for(let r=1;r<rows.length;r++){
+    const row = rows[r];
+    if(!row) continue;
+    const cliente = String(row[iCliente]==null?'':row[iCliente]).trim();
+    if(!cliente) continue;
+    const acao = iAcao>=0 ? String(row[iAcao]==null?'':row[iAcao]).trim() : '';
+    const resp = iResp>=0 ? String(row[iResp]==null?'':row[iResp]).trim() : '';
+    if(acao || resp) fcComments.set(cliente, { acao, responsavel: resp });
+  }
+}
+
+function fcReadWorkbookFile(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = evt=>{
+      try{ resolve(XLSX.read(new Uint8Array(evt.target.result), {type:'array'})); }
+      catch(err){ reject(err); }
+    };
+    reader.onerror = ()=>reject(new Error('Falha ao ler o arquivo.'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function fcApplyCommentsFile(file){
+  try{
+    const wb = await fcReadWorkbookFile(file);
+    fcLoadCommentsFromWorkbook(wb);
+    document.getElementById('fc-chip-comments').innerHTML =
+      `<div class="file-chip"><span class="dot"></span><span class="name">${escapeHtml(file.name)}</span></div>`;
+    if(document.getElementById('fc-comments-panel').classList.contains('overlay')) fcRenderCommentsTable();
+  }catch(err){ alert('Erro ao carregar base de comentários: ' + err.message); }
+}
+
+function fcBuildFilesAOA(){
+  const rows = fcWeekDatasets.length ? fcFilterRows(fcWeekDatasets[0].rows, fcFilterPath) : [];
+  const header = ['Job Number','Gerente Regional','Supervisor','Coordenador','Cliente nome Base'];
+  return [header, ...rows.map(r=>[r.jobNumber, r.gerenteRegional, r.supervisor, r.gestor, r.clienteNomeBase])];
+}
+
+function fcDownloadCommentsTemplate(rows, filename){
+  const data = [['Cliente','Qtd. Processos','Gerente Regional','Supervisor','Ação','Responsável']];
+  rows.forEach(r => data.push([r.cliente, r.count, r.gerente||'', r.supervisor||'', r.acao||'', r.responsavel||'']));
+  if(rows.length===0) data.push(['Ex: NOME DO CLIENTE', 0, '', '', '', '']);
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!cols'] = [{wch:34},{wch:16},{wch:24},{wch:24},{wch:50},{wch:24}];
+
+  const filesAoa = fcBuildFilesAOA();
+  const wsFiles = XLSX.utils.aoa_to_sheet(filesAoa);
+  wsFiles['!cols'] = [{wch:16},{wch:24},{wch:24},{wch:24},{wch:32}];
+  if(filesAoa.length>1) wsFiles['!autofilter'] = { ref: `A1:E${filesAoa.length}` };
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Comentarios');
+  XLSX.utils.book_append_sheet(wb, wsFiles, 'Files');
+  XLSX.writeFile(wb, filename);
+}
+
+function fcBuildCommentsRows(){
+  if(!fcWeekDatasets.length) return [];
+  const filtered = fcFilterRows(fcWeekDatasets[0].rows, fcFilterPath);
+  const byCliente = new Map();
+  filtered.forEach(r=>{
+    const k = r.clienteNomeBase;
+    if(!byCliente.has(k)) byCliente.set(k, {count:0, gerente:r.gerenteRegional, supervisor:r.supervisor});
+    byCliente.get(k).count += 1;
+  });
+  return Array.from(byCliente.entries()).sort((a,b)=>b[1].count-a[1].count).map(([cliente,v])=>{
+    const c = fcComments.get(cliente) || {acao:'', responsavel:''};
+    return { cliente, count:v.count, gerente:v.gerente, supervisor:v.supervisor, acao:c.acao||'', responsavel:c.responsavel||'' };
+  });
+}
+
+function fcRenderCommentsTable(){
+  fcCommentsRowsCache = fcBuildCommentsRows();
+  fcDrawCommentsTable(fcCommentsRowsCache);
+}
+
+function fcDrawCommentsTable(rows){
+  const wrap = document.getElementById('fc-cp-table-wrap');
+  if(rows.length===0){
+    wrap.innerHTML = '<div style="padding:40px 10px;text-align:center;color:var(--text-faint);font-size:13px;">Nenhum cliente para o filtro atual.</div>';
+    return;
+  }
+  wrap.innerHTML = `<table class="data-table comments-table">
+    <thead><tr>
+      <th>Cliente</th><th style="text-align:right;">Qtd. Processos</th><th>Gerente Regional</th><th>Supervisor</th><th style="min-width:280px;">Ação</th><th style="min-width:160px;">Responsável</th>
+    </tr></thead>
+    <tbody>${rows.map((r,i)=>`
+      <tr>
+        <td class="name-cell">${escapeHtml(r.cliente)}</td>
+        <td class="num">${fmtNum(r.count)}</td>
+        <td>${escapeHtml(r.gerente||'')}</td>
+        <td>${escapeHtml(r.supervisor||'')}</td>
+        <td><input type="text" data-field="acao" data-idx="${i}" value="${escapeHtml(r.acao)}" placeholder="Descrever plano de ação…"></td>
+        <td><input type="text" data-field="responsavel" data-idx="${i}" value="${escapeHtml(r.responsavel)}" placeholder="Nome"></td>
+      </tr>`).join('')}</tbody>
+  </table>`;
+
+  wrap.querySelectorAll('input[data-field]').forEach(inp=>{
+    inp.addEventListener('input', ()=>{
+      const row = rows[parseInt(inp.dataset.idx,10)];
+      row[inp.dataset.field] = inp.value;
+      fcComments.set(row.cliente, { acao: row.acao, responsavel: row.responsavel });
+    });
+  });
+}
+
+function fcOpenCommentsPanel(){
+  if(!fcWeekDatasets.length){ alert('Carregue uma base antes de abrir os comentários.'); return; }
+  const total = fcFilterRows(fcWeekDatasets[0].rows, fcFilterPath).length;
+  document.getElementById('fc-cp-subtitle').textContent =
+    `${fmtNum(total)} processos considerados, agrupados por Cliente — respeita o filtro de Gerente Regional/Supervisor/Coordenador ativo.`;
+  document.getElementById('fc-cp-search-input').value = '';
+  document.getElementById('fc-comments-panel').classList.add('overlay');
+  fcRenderCommentsTable();
+}
+function fcCloseCommentsPanel(){
+  document.getElementById('fc-comments-panel').classList.remove('overlay');
+}
+
+document.getElementById('fc-btn-close-comments').addEventListener('click', fcCloseCommentsPanel);
+document.getElementById('fc-comments-panel').addEventListener('click', (e)=>{
+  if(e.target.id === 'fc-comments-panel') fcCloseCommentsPanel();
+});
+document.getElementById('fc-cp-search-input').addEventListener('input', (e)=>{
+  const q = e.target.value.trim().toLowerCase();
+  fcDrawCommentsTable(!q ? fcCommentsRowsCache : fcCommentsRowsCache.filter(r=>r.cliente.toLowerCase().includes(q)));
+});
+document.getElementById('fc-btn-download-comments').addEventListener('click', ()=>{
+  fcDownloadCommentsTemplate(fcCommentsRowsCache, `comentarios_forced_${dateStampGlobal()}.xlsx`);
+});
+document.getElementById('fc-file-comments-inline').addEventListener('change', async (e)=>{
+  const file = e.target.files[0];
+  if(file) await fcApplyCommentsFile(file);
+  e.target.value = '';
+});
+
+/* Upload da base de comentários na tela de carga (opcional) */
+const fcCommentsZone = document.getElementById('fc-comments-upload-zone');
+const fcCommentsInput = document.getElementById('fc-file-comments');
+fcCommentsZone.addEventListener('click', ()=>fcCommentsInput.click());
+fcCommentsZone.addEventListener('dragover', e=>{e.preventDefault(); fcCommentsZone.classList.add('drag');});
+fcCommentsZone.addEventListener('dragleave', ()=>fcCommentsZone.classList.remove('drag'));
+fcCommentsZone.addEventListener('drop', e=>{
+  e.preventDefault(); fcCommentsZone.classList.remove('drag');
+  if(e.dataTransfer.files && e.dataTransfer.files[0]) fcApplyCommentsFile(e.dataTransfer.files[0]);
+});
+fcCommentsInput.addEventListener('change', e=>{
+  if(e.target.files[0]) fcApplyCommentsFile(e.target.files[0]);
+  e.target.value = '';
+});
+document.getElementById('fc-link-download-template').addEventListener('click', (e)=>{
+  e.preventDefault(); e.stopPropagation();
+  fcDownloadCommentsTemplate([], 'modelo_comentarios_forced.xlsx');
+});
 
 function fcRenderDrillDown(){
   const el = document.getElementById('fc-drill-container');
