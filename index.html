@@ -556,6 +556,8 @@ table.data-table td.rank{color:var(--text-faint);font-family:var(--font-mono);wi
   box-shadow:-30px 0 60px -20px rgba(0,0,0,0.5);
 }
 html[data-theme="light"] #comments-panel .cp-sheet, html[data-theme="light"] #fc-comments-panel .cp-sheet{background:#f4f7fd;}
+.fc-select{background:var(--glass-fill-strong);border:1px solid var(--panel-border);color:var(--text-strong);border-radius:var(--radius-sm);padding:9px 12px;font-size:13px;font-family:var(--font-body);min-width:210px;max-width:280px;color-scheme:dark;cursor:pointer;}
+html[data-theme="light"] .fc-select{color-scheme:light;}
 @keyframes slideIn{from{transform:translateX(40px);opacity:0;}to{transform:translateX(0);opacity:1;}}
 .cp-header{padding:22px 26px;border-bottom:1px solid var(--panel-border);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;}
 .cp-header h2{font-size:18px;font-weight:800;color:var(--text-strong);}
@@ -682,9 +684,18 @@ table.comments-table td.name-cell{font-weight:600;color:var(--text-strong);max-w
           </div>
         </div>
         <div class="cp-body">
+          <div style="display:flex;gap:8px;margin-bottom:14px;">
+            <button class="pill-btn primary" id="fc-tab-clientes">Por cliente</button>
+            <button class="pill-btn" id="fc-tab-files">Processos (Files)</button>
+          </div>
           <div class="cp-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
             <input type="text" id="fc-cp-search-input" placeholder="Buscar cliente…">
+          </div>
+          <div id="fc-files-filters" style="display:none;gap:10px;flex-wrap:wrap;margin:0 0 14px;">
+            <select class="fc-select" id="fc-ff-gerente"></select>
+            <select class="fc-select" id="fc-ff-supervisor"></select>
+            <select class="fc-select" id="fc-ff-coordenador"></select>
           </div>
           <div class="client-table-wrap" id="fc-cp-table-wrap"></div>
         </div>
@@ -1437,6 +1448,10 @@ let fcRawByDate = {};        // { 'DD/MM/AA': {label, date, v1: records|null, v2
 let fcWeekDatasets = [];     // [{label, date, rows: [...processado...]}]
 let fcComments = new Map();  // clienteNomeBase -> {acao, responsavel}
 let fcCommentsRowsCache = [];
+let fcJobComments = new Map();   // Job Number -> comentário do processo
+let fcCpView = 'clientes';       // 'clientes' | 'files'
+let fcFilesLimit = 1000;
+const fcFilesSel = { gerente:'', supervisor:'', coordenador:'' };
 let fcFilterPath = { gerenteRegional:null, supervisor:null, gestor:null };
 let fcTrendChart = null;
 const FC_COLORS = {};
@@ -1771,7 +1786,8 @@ function fcExportPanel(){
  const payload = {
     module: 'forcedclose',
     fcWeekDatasets: fcWeekDatasets.map(d=>({ label:d.label, date:d.date.toISOString(), fileName:d.fileName, rows:d.rows })),
-    comments: Array.from(fcComments.entries())
+    comments: Array.from(fcComments.entries()),
+    jobComments: Array.from(fcJobComments.entries())
   };
   downloadPanelSnapshot(payload, 'ForcedClose_' + dateStampGlobal());
 }
@@ -1780,6 +1796,7 @@ if(window.__PANEL_BOOTSTRAP__ && window.__PANEL_BOOTSTRAP__.module === 'forcedcl
   const boot = window.__PANEL_BOOTSTRAP__;
   fcWeekDatasets = boot.fcWeekDatasets.map(d=>({ ...d, date: new Date(d.date) }));
   fcComments = new Map(boot.comments || []);
+  fcJobComments = new Map(boot.jobComments || []);
   openScreen('forcedclose');
   fcRenderAll();
 }
@@ -1805,20 +1822,42 @@ function fcExportFilteredBase(){
 function fcLoadCommentsFromWorkbook(wb){
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
-  if(!rows.length) return;
-  const header = rows[0].map(h => fcNormHeader(h));
-  const iCliente = header.findIndex(h => h==='cliente');
-  const iAcao = header.findIndex(h => h==='acao' || h==='acao (plano de acao)');
-  const iResp = header.findIndex(h => h==='responsavel');
-  if(iCliente === -1) return;
-  for(let r=1;r<rows.length;r++){
-    const row = rows[r];
-    if(!row) continue;
-    const cliente = String(row[iCliente]==null?'':row[iCliente]).trim();
-    if(!cliente) continue;
-    const acao = iAcao>=0 ? String(row[iAcao]==null?'':row[iAcao]).trim() : '';
-    const resp = iResp>=0 ? String(row[iResp]==null?'':row[iResp]).trim() : '';
-    if(acao || resp) fcComments.set(cliente, { acao, responsavel: resp });
+  if(rows.length){
+    const header = rows[0].map(h => fcNormHeader(h));
+    const iCliente = header.findIndex(h => h==='cliente');
+    const iAcao = header.findIndex(h => h==='acao' || h==='acao (plano de acao)');
+    const iResp = header.findIndex(h => h==='responsavel');
+    if(iCliente !== -1){
+      for(let r=1;r<rows.length;r++){
+        const row = rows[r];
+        if(!row) continue;
+        const cliente = String(row[iCliente]==null?'':row[iCliente]).trim();
+        if(!cliente) continue;
+        const acao = iAcao>=0 ? String(row[iAcao]==null?'':row[iAcao]).trim() : '';
+        const resp = iResp>=0 ? String(row[iResp]==null?'':row[iResp]).trim() : '';
+        if(acao || resp) fcComments.set(cliente, { acao, responsavel: resp });
+      }
+    }
+  }
+
+  /* Aba "Files": comentário por processo (chave = Job Number) */
+  const filesName = wb.SheetNames.find(n => fcNormHeader(n) === 'files');
+  if(filesName){
+    const frows = XLSX.utils.sheet_to_json(wb.Sheets[filesName], {header:1, raw:true, defval:null});
+    if(frows.length){
+      const fh = frows[0].map(h => fcNormHeader(h));
+      const iJob = fh.findIndex(h => h==='job number');
+      const iCom = fh.findIndex(h => h==='comentario');
+      if(iJob !== -1 && iCom !== -1){
+        for(let r=1;r<frows.length;r++){
+          const row = frows[r];
+          if(!row) continue;
+          const job = String(row[iJob]==null?'':row[iJob]).trim();
+          const com = String(row[iCom]==null?'':row[iCom]).trim();
+          if(job && com) fcJobComments.set(job, com);
+        }
+      }
+    }
   }
 }
 
@@ -1840,14 +1879,14 @@ async function fcApplyCommentsFile(file){
     fcLoadCommentsFromWorkbook(wb);
     document.getElementById('fc-chip-comments').innerHTML =
       `<div class="file-chip"><span class="dot"></span><span class="name">${escapeHtml(file.name)}</span></div>`;
-    if(document.getElementById('fc-comments-panel').classList.contains('overlay')) fcRenderCommentsTable();
+    if(document.getElementById('fc-comments-panel').classList.contains('overlay')) fcRenderPanelView();
   }catch(err){ alert('Erro ao carregar base de comentários: ' + err.message); }
 }
 
 function fcBuildFilesAOA(){
   const rows = fcWeekDatasets.length ? fcFilterRows(fcWeekDatasets[0].rows, fcFilterPath) : [];
-  const header = ['Job Number','Gerente Regional','Supervisor','Coordenador','Cliente nome Base'];
-  return [header, ...rows.map(r=>[r.jobNumber, r.gerenteRegional, r.supervisor, r.gestor, r.clienteNomeBase])];
+  const header = ['Job Number','Gerente Regional','Supervisor','Coordenador','Cliente nome Base','Comentário'];
+  return [header, ...rows.map(r=>[r.jobNumber, r.gerenteRegional, r.supervisor, r.gestor, r.clienteNomeBase, fcJobComments.get(String(r.jobNumber).trim()) || ''])];
 }
 
 function fcDownloadCommentsTemplate(rows, filename){
@@ -1859,8 +1898,8 @@ function fcDownloadCommentsTemplate(rows, filename){
 
   const filesAoa = fcBuildFilesAOA();
   const wsFiles = XLSX.utils.aoa_to_sheet(filesAoa);
-  wsFiles['!cols'] = [{wch:16},{wch:24},{wch:24},{wch:24},{wch:32}];
-  if(filesAoa.length>1) wsFiles['!autofilter'] = { ref: `A1:E${filesAoa.length}` };
+   wsFiles['!cols'] = [{wch:16},{wch:24},{wch:24},{wch:24},{wch:32},{wch:48}];
+  if(filesAoa.length>1) wsFiles['!autofilter'] = { ref: `A1:F${filesAoa.length}` };
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Comentarios');
@@ -1923,9 +1962,9 @@ function fcOpenCommentsPanel(){
   const total = fcFilterRows(fcWeekDatasets[0].rows, fcFilterPath).length;
   document.getElementById('fc-cp-subtitle').textContent =
     `${fmtNum(total)} processos considerados, agrupados por Cliente — respeita o filtro de Gerente Regional/Supervisor/Coordenador ativo.`;
-  document.getElementById('fc-cp-search-input').value = '';
+  fcFilesSel.gerente = ''; fcFilesSel.supervisor = ''; fcFilesSel.coordenador = ''; fcFilesLimit = 1000;
   document.getElementById('fc-comments-panel').classList.add('overlay');
-  fcRenderCommentsTable();
+  fcSetPanelView('clientes');
 }
 function fcCloseCommentsPanel(){
   document.getElementById('fc-comments-panel').classList.remove('overlay');
@@ -1936,6 +1975,7 @@ document.getElementById('fc-comments-panel').addEventListener('click', (e)=>{
   if(e.target.id === 'fc-comments-panel') fcCloseCommentsPanel();
 });
 document.getElementById('fc-cp-search-input').addEventListener('input', (e)=>{
+  if(fcCpView === 'files'){ fcFilesLimit = 1000; fcRenderFilesTable(); return; }
   const q = e.target.value.trim().toLowerCase();
   fcDrawCommentsTable(!q ? fcCommentsRowsCache : fcCommentsRowsCache.filter(r=>r.cliente.toLowerCase().includes(q)));
 });
@@ -1965,6 +2005,104 @@ fcCommentsInput.addEventListener('change', e=>{
 document.getElementById('fc-link-download-template').addEventListener('click', (e)=>{
   e.preventDefault(); e.stopPropagation();
   fcDownloadCommentsTemplate([], 'modelo_comentarios_forced.xlsx');
+});
+
+/* ---- Visão "Processos (Files)": processo a processo, com filtros de gestores e coluna Comentário ---- */
+function fcSetPanelView(view){
+  fcCpView = view;
+  document.getElementById('fc-tab-clientes').classList.toggle('primary', view === 'clientes');
+  document.getElementById('fc-tab-files').classList.toggle('primary', view === 'files');
+  document.getElementById('fc-files-filters').style.display = (view === 'files') ? 'flex' : 'none';
+  const search = document.getElementById('fc-cp-search-input');
+  search.value = '';
+  search.placeholder = (view === 'files') ? 'Buscar Job Number ou cliente…' : 'Buscar cliente…';
+  fcRenderPanelView();
+}
+function fcRenderPanelView(){
+  if(fcCpView === 'files') fcRenderFilesTable(); else fcRenderCommentsTable();
+}
+
+function fcFilesBaseRows(){
+  return fcWeekDatasets.length ? fcFilterRows(fcWeekDatasets[0].rows, fcFilterPath) : [];
+}
+/* aplica os 3 filtros do painel, exceto o informado (usado para montar as opções em cascata) */
+function fcFilesRowsMatching(exclude){
+  return fcFilesBaseRows().filter(r=>
+    (exclude === 'gerente' || !fcFilesSel.gerente || r.gerenteRegional === fcFilesSel.gerente) &&
+    (exclude === 'supervisor' || !fcFilesSel.supervisor || r.supervisor === fcFilesSel.supervisor) &&
+    (exclude === 'coordenador' || !fcFilesSel.coordenador || r.gestor === fcFilesSel.coordenador)
+  );
+}
+function fcFillSelect(id, label, values, current){
+  document.getElementById(id).innerHTML =
+    `<option value="">${label}: todos</option>` +
+    values.map(v=>`<option value="${escapeHtml(v)}"${v===current?' selected':''}>${escapeHtml(v)}</option>`).join('');
+}
+function fcRefreshFilesFilters(){
+  const uniq = (rows, key) => Array.from(new Set(rows.map(r=>r[key]))).sort((a,b)=>a.localeCompare(b));
+  let g, s, c;
+  for(let pass=0; pass<2; pass++){
+    g = uniq(fcFilesRowsMatching('gerente'), 'gerenteRegional');
+    s = uniq(fcFilesRowsMatching('supervisor'), 'supervisor');
+    c = uniq(fcFilesRowsMatching('coordenador'), 'gestor');
+    if(fcFilesSel.gerente && !g.includes(fcFilesSel.gerente)) fcFilesSel.gerente = '';
+    if(fcFilesSel.supervisor && !s.includes(fcFilesSel.supervisor)) fcFilesSel.supervisor = '';
+    if(fcFilesSel.coordenador && !c.includes(fcFilesSel.coordenador)) fcFilesSel.coordenador = '';
+  }
+  fcFillSelect('fc-ff-gerente', 'Gerente', g, fcFilesSel.gerente);
+  fcFillSelect('fc-ff-supervisor', 'Supervisor', s, fcFilesSel.supervisor);
+  fcFillSelect('fc-ff-coordenador', 'Coordenador', c, fcFilesSel.coordenador);
+}
+
+function fcRenderFilesTable(){
+  fcRefreshFilesFilters();
+  const q = document.getElementById('fc-cp-search-input').value.trim().toLowerCase();
+  let rows = fcFilesRowsMatching(null);
+  if(q) rows = rows.filter(r=> String(r.jobNumber).toLowerCase().includes(q) || String(r.clienteNomeBase).toLowerCase().includes(q));
+  const wrap = document.getElementById('fc-cp-table-wrap');
+  if(!rows.length){
+    wrap.innerHTML = '<div style="padding:40px 10px;text-align:center;color:var(--text-faint);font-size:13px;">Nenhum processo para os filtros atuais.</div>';
+    return;
+  }
+  const shown = rows.slice(0, fcFilesLimit);
+  wrap.innerHTML =
+    `<div style="font-size:12px;color:var(--text-faint);margin-bottom:10px;">Mostrando ${fmtNum(shown.length)} de ${fmtNum(rows.length)} processos</div>` +
+    `<table class="data-table comments-table">
+      <thead><tr>
+        <th>Job Number</th><th>Gerente Regional</th><th>Supervisor</th><th>Coordenador</th><th>Cliente nome Base</th><th style="min-width:300px;">Comentário</th>
+      </tr></thead>
+      <tbody>${shown.map(r=>`
+        <tr>
+          <td class="name-cell">${escapeHtml(r.jobNumber)}</td>
+          <td>${escapeHtml(r.gerenteRegional)}</td>
+          <td>${escapeHtml(r.supervisor)}</td>
+          <td>${escapeHtml(r.gestor)}</td>
+          <td>${escapeHtml(r.clienteNomeBase)}</td>
+          <td><input type="text" data-job="${escapeHtml(String(r.jobNumber).trim())}" value="${escapeHtml(fcJobComments.get(String(r.jobNumber).trim()) || '')}" placeholder="Comentário do processo…"></td>
+        </tr>`).join('')}</tbody>
+    </table>` +
+    (rows.length > shown.length
+      ? `<div style="text-align:center;margin:16px 0;"><button class="pill-btn" id="fc-files-more">Mostrar mais ${fmtNum(Math.min(1000, rows.length - shown.length))}</button></div>`
+      : '');
+
+  wrap.querySelectorAll('input[data-job]').forEach(inp=>{
+    inp.addEventListener('input', ()=>{
+      const job = inp.dataset.job;
+      if(inp.value.trim()) fcJobComments.set(job, inp.value); else fcJobComments.delete(job);
+    });
+  });
+  const more = document.getElementById('fc-files-more');
+  if(more) more.addEventListener('click', ()=>{ fcFilesLimit += 1000; fcRenderFilesTable(); });
+}
+
+document.getElementById('fc-tab-clientes').addEventListener('click', ()=>fcSetPanelView('clientes'));
+document.getElementById('fc-tab-files').addEventListener('click', ()=>fcSetPanelView('files'));
+[['fc-ff-gerente','gerente'],['fc-ff-supervisor','supervisor'],['fc-ff-coordenador','coordenador']].forEach(([id,key])=>{
+  document.getElementById(id).addEventListener('change', (e)=>{
+    fcFilesSel[key] = e.target.value;
+    fcFilesLimit = 1000;
+    fcRenderFilesTable();
+  });
 });
 
 function fcRenderDrillDown(){
