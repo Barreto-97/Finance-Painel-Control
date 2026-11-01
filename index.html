@@ -558,6 +558,8 @@ table.data-table td.rank{color:var(--text-faint);font-family:var(--font-mono);wi
 html[data-theme="light"] #comments-panel .cp-sheet, html[data-theme="light"] #fc-comments-panel .cp-sheet{background:#f4f7fd;}
 .fc-select{background:var(--glass-fill-strong);border:1px solid var(--panel-border);color:var(--text-strong);border-radius:var(--radius-sm);padding:9px 12px;font-size:13px;font-family:var(--font-body);min-width:210px;max-width:280px;color-scheme:dark;cursor:pointer;}
 html[data-theme="light"] .fc-select{color-scheme:light;}
+.fc-select option{background:#0f2148;color:#eef1f7;}
+html[data-theme="light"] .fc-select option{background:#ffffff;color:#0a1628;}
 @keyframes slideIn{from{transform:translateX(40px);opacity:0;}to{transform:translateX(0);opacity:1;}}
 .cp-header{padding:22px 26px;border-bottom:1px solid var(--panel-border);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;}
 .cp-header h2{font-size:18px;font-weight:800;color:var(--text-strong);}
@@ -1884,7 +1886,7 @@ async function fcApplyCommentsFile(file){
 }
 
 function fcBuildFilesAOA(){
-  const rows = fcWeekDatasets.length ? fcFilterRows(fcWeekDatasets[0].rows, fcFilterPath) : [];
+  const rows = fcFilesRowsMatching(null);
   const header = ['Job Number','Gerente Regional','Supervisor','Coordenador','Cliente nome Base','Comentário'];
   return [header, ...rows.map(r=>[r.jobNumber, r.gerenteRegional, r.supervisor, r.gestor, r.clienteNomeBase, fcJobComments.get(String(r.jobNumber).trim()) || ''])];
 }
@@ -1909,7 +1911,7 @@ function fcDownloadCommentsTemplate(rows, filename){
 
 function fcBuildCommentsRows(){
   if(!fcWeekDatasets.length) return [];
-  const filtered = fcFilterRows(fcWeekDatasets[0].rows, fcFilterPath);
+  const filtered = fcFilesRowsMatching(null);
   const byCliente = new Map();
   filtered.forEach(r=>{
     const k = r.clienteNomeBase;
@@ -1923,8 +1925,10 @@ function fcBuildCommentsRows(){
 }
 
 function fcRenderCommentsTable(){
+  fcRefreshFilesFilters();
   fcCommentsRowsCache = fcBuildCommentsRows();
-  fcDrawCommentsTable(fcCommentsRowsCache);
+  const q = document.getElementById('fc-cp-search-input').value.trim().toLowerCase();
+  fcDrawCommentsTable(!q ? fcCommentsRowsCache : fcCommentsRowsCache.filter(r=>r.cliente.toLowerCase().includes(q)));
 }
 
 function fcDrawCommentsTable(rows){
@@ -2012,7 +2016,7 @@ function fcSetPanelView(view){
   fcCpView = view;
   document.getElementById('fc-tab-clientes').classList.toggle('primary', view === 'clientes');
   document.getElementById('fc-tab-files').classList.toggle('primary', view === 'files');
-  document.getElementById('fc-files-filters').style.display = (view === 'files') ? 'flex' : 'none';
+  document.getElementById('fc-files-filters').style.display = 'flex';
   const search = document.getElementById('fc-cp-search-input');
   search.value = '';
   search.placeholder = (view === 'files') ? 'Buscar Job Number ou cliente…' : 'Buscar cliente…';
@@ -2101,7 +2105,7 @@ document.getElementById('fc-tab-files').addEventListener('click', ()=>fcSetPanel
   document.getElementById(id).addEventListener('change', (e)=>{
     fcFilesSel[key] = e.target.value;
     fcFilesLimit = 1000;
-    fcRenderFilesTable();
+    fcRenderPanelView();
   });
 });
 
