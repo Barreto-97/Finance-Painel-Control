@@ -2596,7 +2596,8 @@ function extractDetailsRecords(ws){
     amt = typeof amt === 'number' ? amt : parseFloat(amt);
     if(isNaN(amt)) amt = 0;
 
-    const account = String(cell(r, cAcct) ?? '').trim();
+const account = String(cell(r, cAcct) ?? '').trim();
+    if(['6405365231','6411304110','6411303856','6411303837'].includes(account)) continue;
     const custGroup = String(cell(r, cCGroup) ?? '').trim() || '(Sem Customer Group)';
     const custName = String(cell(r, cCName) ?? '').trim();
     const branch = String(cell(r, cBranch) ?? '').trim() || '(Sem Branch)';
