@@ -1621,9 +1621,12 @@ function fcNormAccent(s){
   return (s||'').toString().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 }
 
+const FC_EXCLUDED_CLIENTS = new Set(['6405365231','6411304110','6411303856','6411303837']);
+
 function fcProcessRawRecords(rawRecords){
-  // 1) remove Stat = CLS / CMP — exceto CMP com WIP ou Accrual diferente de 0 (positivo ou negativo)
+  // 1) remove clientes excluídos e Stat = CLS / CMP — exceto CMP com WIP ou Accrual diferente de 0 (positivo ou negativo)
   let rows = rawRecords.filter(r=>{
+    if(FC_EXCLUDED_CLIENTS.has(fcNormClientKey(r.localClient))) return false;
     const stat = (r.stat||'').toString().trim().toUpperCase();
     if(stat==='CLS') return false;
     if(stat==='CMP'){
